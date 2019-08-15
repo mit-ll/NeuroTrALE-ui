@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedParameters": true,
+    "noUnusedLocals": true,
+    "preserveConstEnums": true,
+    "experimentalDecorators": true,
+    "strictNullChecks": true,
+    "allowSyntheticDefaultImports": true,
+    "sourceMap": true,
+    "moduleResolution": "node",
+    "target": "ES2017",
+    "newLine": "LF",
+    "baseUrl": ".",
+    "paths": {
+      "*": ["*"],
+      "neuroglancer/*": ["src/neuroglancer/*"]
+    },
+    "typeRoots": [],
+    "module": "ESNext"
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "templates",
+    "python",
+    "testdata",
+    "examples",
+    "config"
+  ]
+}

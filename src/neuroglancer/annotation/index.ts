@@ -45,6 +45,7 @@ export enum AnnotationType {
   LINE,
   AXIS_ALIGNED_BOUNDING_BOX,
   ELLIPSOID,
+  POLYGON,
 }
 
 export const annotationTypes = [
@@ -52,6 +53,7 @@ export const annotationTypes = [
   AnnotationType.LINE,
   AnnotationType.AXIS_ALIGNED_BOUNDING_BOX,
   AnnotationType.ELLIPSOID,
+  AnnotationType.POLYGON,
 ];
 
 export interface AnnotationBase {
@@ -90,7 +92,12 @@ export interface Ellipsoid extends AnnotationBase {
   type: AnnotationType.ELLIPSOID;
 }
 
-export type Annotation = Line|Point|AxisAlignedBoundingBox|Ellipsoid;
+export interface Polygon extends AnnotationBase {
+  points: vec3[]
+  type: AnnotationType.POLYGON
+}
+
+export type Annotation = Line|Point|AxisAlignedBoundingBox|Ellipsoid|Polygon;
 
 export interface AnnotationTypeHandler<T extends Annotation> {
   icon: string;
@@ -211,6 +218,35 @@ typeHandlers.set(AnnotationType.ELLIPSOID, {
       const coordinateOffset = index * 6;
       coordinates.set(center, coordinateOffset);
       coordinates.set(radii, coordinateOffset + 3);
+    };
+  },
+});
+
+typeHandlers.set(AnnotationType.POLYGON, {
+  icon: '▰',
+  description: 'Polygon',
+  toJSON: (annotation: Line) => {
+    return {
+      pointA: Array.from(annotation.pointA),
+      pointB: Array.from(annotation.pointB),
+    };
+  },
+  restoreState: (annotation: Line, obj: any) => {
+    annotation.pointA = verifyObjectProperty(obj, 'pointA', verify3dVec);
+    annotation.pointB = verifyObjectProperty(obj, 'pointB', verify3dVec);
+  },
+  serializedBytes: 6 * 4,
+  serializer: (buffer: ArrayBuffer, offset: number, numAnnotations: number) => {
+    const coordinates = new Float32Array(buffer, offset, numAnnotations * 6);
+    return (annotation: Line, index: number) => {
+      const {pointA, pointB} = annotation;
+      const coordinateOffset = index * 6;
+      coordinates[coordinateOffset] = pointA[0];
+      coordinates[coordinateOffset + 1] = pointA[1];
+      coordinates[coordinateOffset + 2] = pointA[2];
+      coordinates[coordinateOffset + 3] = pointB[0];
+      coordinates[coordinateOffset + 4] = pointB[1];
+      coordinates[coordinateOffset + 5] = pointB[2];
     };
   },
 });
@@ -460,7 +496,7 @@ export function serializeAnnotations(allAnnotations: Annotation[][]): Serialized
 }
 
 export class AnnotationSerializer {
-  annotations: [Point[], Line[], AxisAlignedBoundingBox[], Ellipsoid[]] = [[], [], [], []];
+  annotations: [Point[], Line[], AxisAlignedBoundingBox[], Ellipsoid[], Polygon[]] = [[], [], [], [], []];
   add(annotation: Annotation) {
     (<Annotation[]>this.annotations[annotation.type]).push(annotation);
   }

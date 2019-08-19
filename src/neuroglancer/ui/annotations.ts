@@ -452,6 +452,14 @@ export class AnnotationLayerView extends Tab {
         this.layer.tool.value = new PlaceSphereTool(this.layer, {});
       });
       toolbox.appendChild(ellipsoidButton);
+
+      const polygonButton = document.createElement('button');
+      polygonButton.textContent = getAnnotationTypeHandler(AnnotationType.POLYGON).icon;
+      polygonButton.title = 'Annotate polygon';
+      polygonButton.addEventListener('click', () => {
+        this.layer.tool.value = new PlacePolygonTool(this.layer, {});
+      });
+      toolbox.appendChild(polygonButton);
     }
     this.element.appendChild(toolbox);
 
@@ -871,6 +879,7 @@ const ANNOTATE_POINT_TOOL_ID = 'annotatePoint';
 const ANNOTATE_LINE_TOOL_ID = 'annotateLine';
 const ANNOTATE_BOUNDING_BOX_TOOL_ID = 'annotateBoundingBox';
 const ANNOTATE_ELLIPSOID_TOOL_ID = 'annotateSphere';
+const ANNOTATE_POLYGON_TOOL_ID = 'annotatePolygon';
 
 export class PlacePointTool extends PlaceAnnotationTool {
   constructor(layer: UserLayerWithAnnotations, options: any) {
@@ -1093,6 +1102,39 @@ class PlaceSphereTool extends TwoStepAnnotationTool {
   }
 }
 
+export class PlacePolygonTool extends PlaceTwoCornerAnnotationTool {
+  get description() {
+    return `annotate line`;
+  }
+
+  getInitialAnnotation(mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState): Annotation {
+    const result = super.getInitialAnnotation(mouseState, annotationLayer);
+    result.segments = getSelectedAssocatedSegment(annotationLayer);
+    return result;
+  }
+
+  getUpdatedAnnotation(
+      oldAnnotation: Line|AxisAlignedBoundingBox, mouseState: MouseSelectionState,
+      annotationLayer: AnnotationLayerState) {
+    const result = super.getUpdatedAnnotation(oldAnnotation, mouseState, annotationLayer);
+    const segments = result.segments;
+    if (segments !== undefined && segments.length > 0) {
+      segments.length = 1;
+    }
+    let newSegments = getSelectedAssocatedSegment(annotationLayer);
+    if (newSegments && segments) {
+      newSegments = newSegments.filter(x => segments.findIndex(y => Uint64.equal(x, y)) === -1);
+    }
+    result.segments = [...(segments || []), ...(newSegments || [])] || undefined;
+    return result;
+  }
+
+  toJSON() {
+    return ANNOTATE_POLYGON_TOOL_ID;
+  }
+}
+PlacePolygonTool.prototype.annotationType = AnnotationType.LINE;
+
 registerTool(
     ANNOTATE_POINT_TOOL_ID,
     (layer, options) => new PlacePointTool(<UserLayerWithAnnotations>layer, options));
@@ -1105,6 +1147,9 @@ registerTool(
 registerTool(
     ANNOTATE_ELLIPSOID_TOOL_ID,
   (layer, options) => new PlaceSphereTool(<UserLayerWithAnnotations>layer, options));
+registerTool(
+    ANNOTATE_POLYGON_TOOL_ID,
+  (layer, options) => new PlacePolygonTool(<UserLayerWithAnnotations>layer, options));
 
 export interface UserLayerWithAnnotations extends UserLayer {
   annotationLayerState: WatchableRefCounted<AnnotationLayerState>;

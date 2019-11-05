@@ -30,6 +30,7 @@ export interface AnnotationRenderContext {
   renderContext: SliceViewPanelRenderContext|PerspectiveViewRenderContext;
   bufferOffset: number;
   count: number;
+  byteCount: number[];
   basePickId: number;
   selectedIndex: number;
   projectionMatrix: mat4;
@@ -38,7 +39,8 @@ export interface AnnotationRenderContext {
 const tempPickID = new Float32Array(4);
 
 export abstract class AnnotationRenderHelper extends RefCounted {
-  pickIdsPerInstance: number;
+  pickIdsPerInstance: (annotations: Annotation[]) => number[];
+  getPickIdCount: (annotation: Annotation|null) => number;
   targetIsSliceView: boolean;
 
   constructor(public gl: GL) {
@@ -93,9 +95,14 @@ if (selectedIndex == pickBaseOffset${
     builder.addUniform('highp uint', 'uPickID');
     builder.addVarying('highp uint', 'vPickID', 'flat');
 
-    builder.addVertexCode(`
-highp uint getPickBaseOffset() { return uint(gl_InstanceID) * ${this.pickIdsPerInstance}u; }
-`);
+    // TODO Empty array?
+    /*builder.addVertexCode(`
+highp uint getPickBaseOffset() { return uint(gl_InstanceID) * ${this.pickIdsPerInstance([]).reduce((a, b) => a + b, 0)}u; }
+`);*/
+
+  builder.addVertexCode(`
+  highp uint getPickBaseOffset() { return uint(gl_InstanceID) * ${this.getPickIdCount(null)}u; }
+  `);
 
     builder.addFragmentCode(`
 void emitAnnotation(vec4 color) {
@@ -136,7 +143,7 @@ void emitAnnotation(vec4 color) {
 }
 
 interface AnnotationTypeRenderHandler<T extends Annotation> {
-  bytes: number;
+  bytes: (annotation: T) => number;
   serializer:
       (buffer: ArrayBuffer, offset: number,
        numAnnotations: number) => ((annotation: T, index: number) => void);
@@ -146,7 +153,8 @@ interface AnnotationTypeRenderHandler<T extends Annotation> {
         ): AnnotationRenderHelper;
   };
   sliceViewRenderHelper: {new(gl: GL): AnnotationRenderHelper;};
-  pickIdsPerInstance: number;
+  pickIdsPerInstance: (annotations: T[]) => number[];
+  getPickIdCount: (annotation: T) => number;
   getRepresentativePoint: (objectToData: mat4, annotation: T, partIndex: number) => vec3;
   updateViaRepresentativePoint:
       (oldAnnotation: T, position: vec3, dataToObject: mat4, partIndex: number) => T;

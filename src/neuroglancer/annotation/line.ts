@@ -150,12 +150,12 @@ function snapPositionToEndpoint(
 }
 
 registerAnnotationTypeRenderHandler(AnnotationType.LINE, {
-  bytes: 6 * 4,
+  bytes: () => 6 * 4,
   serializer: (buffer: ArrayBuffer, offset: number, numAnnotations: number) => {
     const coordinates = new Float32Array(buffer, offset, numAnnotations * 6);
     return (annotation: Line, index: number) => {
       const {pointA, pointB} = annotation;
-      const coordinateOffset = index * 6;
+      const coordinateOffset = index;
       coordinates[coordinateOffset] = pointA[0];
       coordinates[coordinateOffset + 1] = pointA[1];
       coordinates[coordinateOffset + 2] = pointA[2];
@@ -166,7 +166,15 @@ registerAnnotationTypeRenderHandler(AnnotationType.LINE, {
   },
   sliceViewRenderHelper: RenderHelper,
   perspectiveViewRenderHelper: RenderHelper,
-  pickIdsPerInstance: PICK_IDS_PER_INSTANCE,
+  pickIdsPerInstance: (annotations) => {
+    let pickIdCounts = [];
+    for (let i = 0; i < annotations.length; ++i) {
+      pickIdCounts.push(PICK_IDS_PER_INSTANCE);
+    }
+
+    return pickIdCounts;
+  },
+  getPickIdCount: () => PICK_IDS_PER_INSTANCE,
   snapPosition: (position, objectToData, data, offset, partIndex) => {
     const endpoints = new Float32Array(data, offset, 6);
     if (partIndex === FULL_OBJECT_PICK_OFFSET) {

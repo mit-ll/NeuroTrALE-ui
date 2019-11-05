@@ -18,18 +18,18 @@
  * @file Support for rendering polygon annotations.
  */
 
-import {AnnotationType, Line} from 'neuroglancer/annotation';
+import {AnnotationType, Polygon} from 'neuroglancer/annotation';
 import {AnnotationRenderContext, AnnotationRenderHelper, registerAnnotationTypeRenderHandler} from 'neuroglancer/annotation/type_handler';
 import {tile2dArray} from 'neuroglancer/util/array';
-import {mat4, projectPointToLineSegment, vec3} from 'neuroglancer/util/geom';
+import {mat4, vec3} from 'neuroglancer/util/geom';
 import {getMemoizedBuffer} from 'neuroglancer/webgl/buffer';
 import {CircleShader, VERTICES_PER_CIRCLE} from 'neuroglancer/webgl/circles';
 import {LineShader} from 'neuroglancer/webgl/lines';
 import {emitterDependentShaderGetter, ShaderBuilder, ShaderProgram} from 'neuroglancer/webgl/shader';
 
-const FULL_OBJECT_PICK_OFFSET = 0;
-const ENDPOINTS_PICK_OFFSET = FULL_OBJECT_PICK_OFFSET + 1;
-const PICK_IDS_PER_INSTANCE = ENDPOINTS_PICK_OFFSET + 2;
+//const FULL_OBJECT_PICK_OFFSET = 0;
+//const ENDPOINTS_PICK_OFFSET = FULL_OBJECT_PICK_OFFSET + 1;
+//const PICK_IDS_PER_INSTANCE = ENDPOINTS_PICK_OFFSET + 2;
 
 function getEndpointIndexArray() {
   return tile2dArray(
@@ -110,22 +110,39 @@ emitAnnotation(getCircleColor(vColor, borderColor));
 
   drawEdges(context: AnnotationRenderContext) {
     const shader = this.edgeShaderGetter(context.renderContext.emitter);
+
+    const pointCount = context.byteCount.reduce((a, b) => a + b, 0) / (4 * 3);
     this.enable(shader, context, () => {
-      this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 1, 1.0, context.count);
+      this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 2, 1.0, Math.floor(pointCount / 2));  
     });
+
+
+    // TODO This rendering works but splits the lines up into separate passes.
+    //let byteOffset = 0;
+    
+    // for (let i = 0; i < context.byteCount.length; ++i) {
+    //   context.bufferOffset += byteOffset;
+    //   byteOffset = context.byteCount[i];
+
+    //   this.enable(shader, context, () => {          
+    //     let pointCount = context.byteCount[i] / (4 * 3);
+    //     this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 7, 1.0, Math.floor(pointCount / 2));
+    //   });
+    // }
   }
 
   drawEndpoints(context: AnnotationRenderContext) {
     const shader = this.endpointShaderGetter(context.renderContext.emitter);
     this.enable(shader, context, () => {
+      const pointCount = context.byteCount.reduce((a, b) => a + b, 0) / (4 * 3);
       const aEndpointIndex = shader.attribute('aEndpointIndex');
       this.endpointIndexBuffer.bindToVertexAttribI(
           aEndpointIndex, /*components=*/ 1,
           /*attributeType=*/ WebGL2RenderingContext.UNSIGNED_BYTE);
       this.circleShader.draw(
           shader, context.renderContext,
-          {interiorRadiusInPixels: 6, borderWidthInPixels: 2, featherWidthInPixels: 1},
-          context.count);
+          {interiorRadiusInPixels: 4, borderWidthInPixels: 2, featherWidthInPixels: 1},
+          Math.floor(pointCount / 2));
       shader.gl.disableVertexAttribArray(aEndpointIndex);
     });
   }
@@ -136,11 +153,13 @@ emitAnnotation(getCircleColor(vColor, borderColor));
   }
 }
 
+/*
 function snapPositionToLine(position: vec3, objectToData: mat4, endpoints: Float32Array) {
   const cornerA = vec3.transformMat4(vec3.create(), <vec3>endpoints.subarray(0, 3), objectToData);
   const cornerB = vec3.transformMat4(vec3.create(), <vec3>endpoints.subarray(3, 6), objectToData);
   projectPointToLineSegment(position, cornerA, cornerB, position);
 }
+*/
 
 function snapPositionToEndpoint(
     position: vec3, objectToData: mat4, endpoints: Float32Array, endpointIndex: number) {
@@ -150,62 +169,90 @@ function snapPositionToEndpoint(
 }
 
 registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
-  bytes: 6 * 4,
-  serializer: (buffer: ArrayBuffer, offset: number, numAnnotations: number) => {
-    const coordinates = new Float32Array(buffer, offset, numAnnotations * 6);
-    return (annotation: Line, index: number) => {
-      const {pointA, pointB} = annotation;
-      const coordinateOffset = index * 6;
-      coordinates[coordinateOffset] = pointA[0];
-      coordinates[coordinateOffset + 1] = pointA[1];
-      coordinates[coordinateOffset + 2] = pointA[2];
-      coordinates[coordinateOffset + 3] = pointB[0];
-      coordinates[coordinateOffset + 4] = pointB[1];
-      coordinates[coordinateOffset + 5] = pointB[2];
+  bytes: (annotation: Polygon) => annotation.points.length * 3 * 4 * 2,
+  serializer: (buffer: ArrayBuffer, offset: number) => {
+    return (annotation: Polygon, index: number) => {
+      const coordinates = new Float32Array(buffer, offset + index * 4, annotation.points.length * 3 * 2);
+      const {points} = annotation;
+      for (let i = 1; i < points.length; ++i) {
+        const coordinateOffset = (i - 1) * 3  * 2;
+        coordinates[coordinateOffset] = points[i - 1][0];
+        coordinates[coordinateOffset + 1] = points[i - 1][1];
+        coordinates[coordinateOffset + 2] = points[i - 1][2];
+        coordinates[coordinateOffset + 3] = points[i][0];
+        coordinates[coordinateOffset + 4] = points[i][1];
+        coordinates[coordinateOffset + 5] = points[i][2];
+      }
+
+      // Connect the ending point to the starting point.
+      if (points.length > 1) {
+        const lastIndex = points.length - 1;
+        const coordinateOffset = lastIndex * 3 * 2;
+        coordinates[coordinateOffset] = points[lastIndex][0];
+        coordinates[coordinateOffset + 1] = points[lastIndex][1];
+        coordinates[coordinateOffset + 2] = points[lastIndex][2];
+        coordinates[coordinateOffset + 3] = points[0][0];
+        coordinates[coordinateOffset + 4] = points[0][1];
+        coordinates[coordinateOffset + 5] = points[0][2];
+      }
     };
   },
   sliceViewRenderHelper: RenderHelper,
   perspectiveViewRenderHelper: RenderHelper,
-  pickIdsPerInstance: PICK_IDS_PER_INSTANCE,
-  snapPosition: (position, objectToData, data, offset, partIndex) => {
-    const endpoints = new Float32Array(data, offset, 6);
-    if (partIndex === FULL_OBJECT_PICK_OFFSET) {
-      snapPositionToLine(position, objectToData, endpoints);
-    } else {
-      snapPositionToEndpoint(position, objectToData, endpoints, partIndex - ENDPOINTS_PICK_OFFSET);
+  pickIdsPerInstance: (annotations) => {
+    let pickIdCounts = [];
+    for (let i = 0; i < annotations.length; ++i) {
+      pickIdCounts.push(annotations[i].points.length);
     }
+
+    return pickIdCounts;
+  },
+  getPickIdCount: (annotation) => annotation == null ? 1 : annotation.points.length, // TODO No code provides the annotation.
+  snapPosition: (position, objectToData, data, offset, partIndex) => {
+    const endpoints = new Float32Array(data, offset, 3 * partIndex);
+    //if (partIndex === FULL_OBJECT_PICK_OFFSET) {
+    //  snapPositionToLine(position, objectToData, endpoints);
+    //} else {
+      snapPositionToEndpoint(position, objectToData, endpoints, partIndex);
+    //}
   },
   getRepresentativePoint: (objectToData, ann, partIndex) => {
     let repPoint = vec3.create();
     // if the full object is selected just pick the first point as representative
-    if (partIndex === FULL_OBJECT_PICK_OFFSET) {
-      vec3.transformMat4(repPoint, ann.pointA, objectToData);
-    } else {
-      if ((partIndex - ENDPOINTS_PICK_OFFSET) === 0) {
-        vec3.transformMat4(repPoint, ann.pointA, objectToData);
-      } else {
-        vec3.transformMat4(repPoint, ann.pointB, objectToData);
-      }
-    }
+    //if (partIndex === FULL_OBJECT_PICK_OFFSET) {
+    //  vec3.transformMat4(repPoint, ann.points[0], objectToData);
+    //} else {
+      //if ((partIndex - ENDPOINTS_PICK_OFFSET) === 0) {
+      //  vec3.transformMat4(repPoint, ann.points[partIndex], objectToData);
+      //} else {
+        vec3.transformMat4(repPoint, ann.points[partIndex - 1], objectToData);
+      //}
+    //}
     return repPoint;
   },
   updateViaRepresentativePoint: (oldAnnotation, position, dataToObject, partIndex) => {
     let newPt = vec3.transformMat4(vec3.create(), position, dataToObject);
-    let baseLine = {...oldAnnotation};
+    let basePolygon = {...oldAnnotation};
+
+    basePolygon.points[partIndex - 1] = newPt;
+
+    /*
     switch (partIndex) {
       case FULL_OBJECT_PICK_OFFSET:
-        let delta = vec3.sub(vec3.create(), oldAnnotation.pointB, oldAnnotation.pointA);
-        baseLine.pointA = newPt;
-        baseLine.pointB = vec3.add(vec3.create(), newPt, delta);
+        let delta = vec3.sub(vec3.create(), oldAnnotation.points[0], oldAnnotation.points[0]);
+        baseLine.points[0] = newPt;
+        baseLine.points[0] = vec3.add(vec3.create(), newPt, delta);
         break;
       case FULL_OBJECT_PICK_OFFSET + 1:
-        baseLine.pointA = newPt;
-        baseLine.pointB = oldAnnotation.pointB;
+        baseLine.points[0] = newPt;
+        baseLine.points[0] = oldAnnotation.points[0];
         break;
       case FULL_OBJECT_PICK_OFFSET + 2:
-        baseLine.pointA = oldAnnotation.pointA;
-        baseLine.pointB = newPt;
+        baseLine.points[0] = oldAnnotation.points[0];
+        baseLine.points[0] = newPt;
     }
-    return baseLine;
+    */
+
+    return basePolygon;
   }
 });

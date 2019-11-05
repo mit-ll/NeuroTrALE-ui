@@ -391,12 +391,12 @@ function snapPositionToCorner(
 }
 
 registerAnnotationTypeRenderHandler(AnnotationType.AXIS_ALIGNED_BOUNDING_BOX, {
-  bytes: 6 * 4,
+  bytes: () => 6 * 4,
   serializer: (buffer: ArrayBuffer, offset: number, numAnnotations: number) => {
     const coordinates = new Float32Array(buffer, offset, numAnnotations * 6);
     return (annotation: AxisAlignedBoundingBox, index: number) => {
       const {pointA, pointB} = annotation;
-      const coordinateOffset = index * 6;
+      const coordinateOffset = index;
       coordinates[coordinateOffset] = Math.min(pointA[0], pointB[0]);
       coordinates[coordinateOffset + 1] = Math.min(pointA[1], pointB[1]);
       coordinates[coordinateOffset + 2] = Math.min(pointA[2], pointB[2]);
@@ -407,7 +407,15 @@ registerAnnotationTypeRenderHandler(AnnotationType.AXIS_ALIGNED_BOUNDING_BOX, {
   },
   sliceViewRenderHelper: SliceViewRenderHelper,
   perspectiveViewRenderHelper: PerspectiveViewRenderHelper,
-  pickIdsPerInstance: PICK_IDS_PER_INSTANCE,
+  pickIdsPerInstance: (annotations) => {
+    let pickIdCounts = [];
+    for (let i = 0; i < annotations.length; ++i) {
+      pickIdCounts.push(PICK_IDS_PER_INSTANCE);
+    }
+
+    return pickIdCounts;
+  },
+  getPickIdCount: () => PICK_IDS_PER_INSTANCE,
   snapPosition: (position, objectToData, data, offset, partIndex) => {
     const corners = new Float32Array(data, offset, 6);
     if (partIndex >= CORNERS_PICK_OFFSET && partIndex < EDGES_PICK_OFFSET) {

@@ -20,7 +20,7 @@ import 'neuroglancer/annotation/point';
 import 'neuroglancer/annotation/ellipsoid';
 import 'neuroglancer/annotation/polygon';
 
-import {AnnotationBase, AnnotationSource, annotationTypes} from 'neuroglancer/annotation';
+import {AnnotationBase, AnnotationSource, annotationTypes, Annotation} from 'neuroglancer/annotation';
 import {AnnotationLayerState} from 'neuroglancer/annotation/annotation_layer_state';
 import {ANNOTATION_PERSPECTIVE_RENDER_LAYER_RPC_ID, ANNOTATION_RENDER_LAYER_RPC_ID, ANNOTATION_RENDER_LAYER_UPDATE_SEGMENTATION_RPC_ID} from 'neuroglancer/annotation/base';
 import {AnnotationGeometryData, MultiscaleAnnotationSource} from 'neuroglancer/annotation/frontend_source';
@@ -79,18 +79,29 @@ function serializeAnnotationSet(
   let numPickIds = 0;
   const typeToOffset: number[] = [];
   for (const annotationType of annotationTypes) {
+    const ids = typeToIds[annotationType];
     typeToOffset[annotationType] = totalBytes;
-    const count = typeToIds[annotationType].length;
+    //const count = typeToIds[annotationType].length;
     const handler = getAnnotationTypeRenderHandler(annotationType);
-    totalBytes += count * handler.bytes;
-    numPickIds += handler.pickIdsPerInstance * count;
+    
+    let annotations: Annotation[] = [];
+    ids.forEach((id) => {
+      totalBytes += handler.bytes(annotationSet.get(id)!)
+      annotations.push(annotationSet.get(id)!);
+    });
+    //numPickIds += handler.pickIdsPerInstance * count;
+    numPickIds += handler.pickIdsPerInstance(annotations).reduce((a, b) => a + b, 0);
   }
   const data = new ArrayBuffer(totalBytes);
   for (const annotationType of annotationTypes) {
     const ids = typeToIds[annotationType];
     const handler = getAnnotationTypeRenderHandler(annotationType);
     const serializer = handler.serializer(data, typeToOffset[annotationType], ids.length);
-    ids.forEach((id, index) => serializer(annotationSet.get(id)!, index));
+    let processedBytes = 0;
+    ids.forEach((id) => {
+      serializer(annotationSet.get(id)!, processedBytes / 4);
+      processedBytes += handler.bytes(annotationSet.get(id)!);
+    });
   }
   return {typeToIds, typeToOffset, data, numPickIds};
 }
@@ -290,6 +301,7 @@ function AnnotationRenderLayer<TBase extends {
         const helper = renderHelpers[annotationType] =
             this.registerDisposer(new renderHelperConstructor(gl));
         helper.pickIdsPerInstance = handler.pickIdsPerInstance;
+        helper.getPickIdCount = handler.getPickIdCount;
         helper.targetIsSliceView = renderHelperType === 'sliceViewRenderHelper';
       }
       this.registerDisposer(base.redrawNeeded.add(() => {
@@ -331,12 +343,28 @@ function AnnotationRenderLayer<TBase extends {
         const ids = typeToIds[annotationType];
         if (ids.length > 0) {
           const count = ids.length;
+          const byteCount: number[] = [];
           const handler = getAnnotationTypeRenderHandler(annotationType);
           let selectedIndex = 0xFFFFFFFF;
+
+          let annotations: Annotation[] = [];
+          ids.forEach((id) => {
+            let bytes = handler.bytes(this.base.state.source.getReference(id).value!);
+            byteCount.push(bytes);
+            annotations.push(this.base.state.source.getReference(id).value!);
+          });
+
+          let pickIds = handler.pickIdsPerInstance(annotations);
           if (hoverValue !== undefined) {
             const index = binarySearch(ids, hoverValue.id, (a, b) => a < b ? -1 : a === b ? 0 : 1);
             if (index >= 0) {
-              selectedIndex = index * handler.pickIdsPerInstance;
+              //selectedIndex = index * handler.pickIdsPerInstance;
+
+              selectedIndex = 0;
+              for (let i = 0; i < index; ++i) {
+                selectedIndex += pickIds[i];
+              }
+
               // If we wanted to include the partIndex, we would add:
               // selectedIndex += hoverValue.partIndex;
             }
@@ -349,10 +377,12 @@ function AnnotationRenderLayer<TBase extends {
             buffer: chunk.buffer!,
             bufferOffset: typeToOffset[annotationType],
             count,
+            byteCount,
             projectionMatrix,
           };
           this.renderHelpers[annotationType].draw(context);
-          pickId += count * handler.pickIdsPerInstance;
+          //pickId += count * handler.pickIdsPerInstance;
+          pickId += pickIds.reduce((a, b) => a + b, 0);
         }
       }
     }
@@ -397,27 +427,56 @@ function AnnotationRenderLayer<TBase extends {
         mouseState: MouseSelectionState, _pickedValue: Uint64, pickedOffset: number, data: any) {
       const chunk = <AnnotationGeometryDataInterface>data;
       const typeToIds = chunk.typeToIds!;
-      const typeToOffset = chunk.typeToOffset!;
+      //const typeToOffset = chunk.typeToOffset!;
       for (const annotationType of annotationTypes) {
         const ids = typeToIds[annotationType];
         const handler = getAnnotationTypeRenderHandler(annotationType);
-        const {pickIdsPerInstance} = handler;
-        if (pickedOffset < ids.length * pickIdsPerInstance) {
-          const instanceIndex = Math.floor(pickedOffset / pickIdsPerInstance);
+        //const {pickIdsPerInstance} = handler;
+
+        let annotations: Annotation[] = [];
+        ids.forEach((id) => annotations.push(this.base.state.source.getReference(id).value!));
+        let pickIds = handler.pickIdsPerInstance(annotations);
+        const pickIdCount = pickIds.reduce((a, b) => a + b, 0);
+
+        //if (pickedOffset < ids.length * pickIdsPerInstance) {
+        if (pickedOffset < pickIdCount) {
+          //const instanceIndex = Math.floor(pickedOffset / pickIdsPerInstance);
+          let instanceIndex = 0;
+          let pickIdSum = 0;
+          let partIndex = 0;
+          for (let i = 0; i < pickIds.length; ++i) {
+            pickIdSum += pickIds[i];
+
+            if (pickIdSum > pickedOffset) {
+              partIndex = pickIds[i] - (pickIdSum - pickedOffset); // Bin size minus remainder (effectively modulo).
+              break;
+            }
+
+            ++instanceIndex;
+          }
+
+          let bufferOffset = 0;
+          for (let i = 0; i < instanceIndex; ++i) {
+            bufferOffset += handler.bytes(this.base.state.source.getReference(ids[i]).value!);
+          }
+
           const id = ids[instanceIndex];
-          const partIndex = pickedOffset % pickIdsPerInstance;
+          //const partIndex = pickedOffset % pickIdsPerInstance;
+          //const annotation = this.base.state.source.getReference(id).value
           mouseState.pickedAnnotationId = id;
           mouseState.pickedAnnotationLayer = this.base.state;
           mouseState.pickedOffset = partIndex;
           mouseState.pickedAnnotationBuffer = chunk.data!.buffer;
-          mouseState.pickedAnnotationBufferOffset = chunk.data!.byteOffset + typeToOffset[annotationType] + instanceIndex * handler.bytes;
+          //mouseState.pickedAnnotationBufferOffset = chunk.data!.byteOffset + typeToOffset[annotationType] + instanceIndex * handler.bytes(annotation!);
+          mouseState.pickedAnnotationBufferOffset = bufferOffset;
           handler.snapPosition(
               mouseState.position, this.base.state.objectToGlobal, mouseState.pickedAnnotationBuffer,
               mouseState.pickedAnnotationBufferOffset,
               partIndex);
           return;
         }
-        pickedOffset -= ids.length * pickIdsPerInstance;
+        //pickedOffset -= ids.length * pickIdsPerInstance;
+        pickedOffset -= pickIdCount;
       }
     }
 

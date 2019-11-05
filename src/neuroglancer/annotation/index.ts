@@ -93,8 +93,8 @@ export interface Ellipsoid extends AnnotationBase {
 }
 
 export interface Polygon extends AnnotationBase {
-  points: vec3[]
-  type: AnnotationType.POLYGON
+  points: vec3[];
+  type: AnnotationType.POLYGON;
 }
 
 export type Annotation = Line|Point|AxisAlignedBoundingBox|Ellipsoid|Polygon;
@@ -225,28 +225,31 @@ typeHandlers.set(AnnotationType.ELLIPSOID, {
 typeHandlers.set(AnnotationType.POLYGON, {
   icon: '▰',
   description: 'Polygon',
-  toJSON: (annotation: Line) => {
+  toJSON: (annotation: Polygon) => {
     return {
-      pointA: Array.from(annotation.pointA),
-      pointB: Array.from(annotation.pointB),
+      points: Array.from(annotation.points),
     };
   },
-  restoreState: (annotation: Line, obj: any) => {
-    annotation.pointA = verifyObjectProperty(obj, 'pointA', verify3dVec);
-    annotation.pointB = verifyObjectProperty(obj, 'pointB', verify3dVec);
+  restoreState: (annotation: Polygon, obj: any) => {
+    //annotation.pointA = verifyObjectProperty(obj, 'pointA', verify3dVec);
+    //annotation.pointB = verifyObjectProperty(obj, 'pointB', verify3dVec);
+    // TODO Implement verify3dVecArray?
+    annotation.points = obj.points;
   },
-  serializedBytes: 6 * 4,
+  serializedBytes: 100000 * 3 * 4,
   serializer: (buffer: ArrayBuffer, offset: number, numAnnotations: number) => {
     const coordinates = new Float32Array(buffer, offset, numAnnotations * 6);
-    return (annotation: Line, index: number) => {
-      const {pointA, pointB} = annotation;
-      const coordinateOffset = index * 6;
-      coordinates[coordinateOffset] = pointA[0];
-      coordinates[coordinateOffset + 1] = pointA[1];
-      coordinates[coordinateOffset + 2] = pointA[2];
-      coordinates[coordinateOffset + 3] = pointB[0];
-      coordinates[coordinateOffset + 4] = pointB[1];
-      coordinates[coordinateOffset + 5] = pointB[2];
+    return (annotation: Polygon, index: number) => {
+      const {points} = annotation;
+
+      //console.log(points);
+
+      for (let i = 0; i < points.length; ++i) {
+        const coordinateOffset = (index + i) * 3;
+        coordinates[coordinateOffset] = points[i][0];
+        coordinates[coordinateOffset + 1] = points[i][1];
+        coordinates[coordinateOffset + 2] = points[i][2];
+      }
     };
   },
 });

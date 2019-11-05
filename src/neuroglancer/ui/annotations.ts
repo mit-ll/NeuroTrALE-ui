@@ -21,7 +21,7 @@
 import './annotations.css';
 
 import debounce from 'lodash/debounce';
-import {Annotation, AnnotationReference, AnnotationType, AxisAlignedBoundingBox, Ellipsoid, getAnnotationTypeHandler, Line} from 'neuroglancer/annotation';
+import {Annotation, AnnotationReference, AnnotationType, AxisAlignedBoundingBox, Ellipsoid, getAnnotationTypeHandler, Line, Polygon} from 'neuroglancer/annotation';
 import {AnnotationLayer, AnnotationLayerState, PerspectiveViewAnnotationLayer, SliceViewAnnotationLayer} from 'neuroglancer/annotation/frontend';
 import {DataFetchSliceViewRenderLayer, MultiscaleAnnotationSource} from 'neuroglancer/annotation/frontend_source';
 import {setAnnotationHoverStateFromMouseState} from 'neuroglancer/annotation/selection';
@@ -350,6 +350,9 @@ export function getPositionSummary(
       voxelSize.voxelFromSpatial(transformedRadii, transformedRadii);
       element.appendChild(document.createTextNode('±' + formatIntegerBounds(transformedRadii)));
       break;
+    case AnnotationType.POLYGON:
+      element.appendChild(makePointLinkWithTransform(annotation.points[0])); // TODO Calculate center point.
+      element.appendChild(document.createTextNode(' / ' + annotation.points.length))
   }
 }
 
@@ -987,6 +990,37 @@ abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
 }
 
 
+abstract class PlacePolygonAnnotationTool extends TwoStepAnnotationTool {
+  annotationType: AnnotationType.POLYGON;
+
+  getInitialAnnotation(mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState):
+    Annotation {
+      const point = getMousePositionInAnnotationCoordinates(mouseState, annotationLayer);
+      return <Polygon>{
+        id: '',
+        type: this.annotationType,
+        description: '',
+        points: [point]
+      };
+    }
+
+  getUpdatedAnnotation(oldAnnotation: Polygon, mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState):
+    Annotation {
+      const point = getMousePositionInAnnotationCoordinates(mouseState, annotationLayer);
+      const lastPoint = oldAnnotation.points[oldAnnotation.points.length - 1];
+
+      // Only record the new point if the cursor has moved.
+      if (point[0] != lastPoint[0] || point[1] != lastPoint[1] || point[2] != lastPoint[2]) {        
+        if (!isNaN(point[0]) && !isNaN(point[1]) && !isNaN(point[2])) {
+          oldAnnotation.points.push(point);
+        }
+      }
+
+      return oldAnnotation;
+    }
+}
+
+
 abstract class PlaceTwoCornerAnnotationTool extends TwoStepAnnotationTool {
   annotationType: AnnotationType.LINE|AnnotationType.AXIS_ALIGNED_BOUNDING_BOX;
 
@@ -1102,38 +1136,16 @@ class PlaceSphereTool extends TwoStepAnnotationTool {
   }
 }
 
-export class PlacePolygonTool extends PlaceTwoCornerAnnotationTool {
+export class PlacePolygonTool extends PlacePolygonAnnotationTool {
   get description() {
-    return `annotate line`;
-  }
-
-  getInitialAnnotation(mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState): Annotation {
-    const result = super.getInitialAnnotation(mouseState, annotationLayer);
-    result.segments = getSelectedAssocatedSegment(annotationLayer);
-    return result;
-  }
-
-  getUpdatedAnnotation(
-      oldAnnotation: Line|AxisAlignedBoundingBox, mouseState: MouseSelectionState,
-      annotationLayer: AnnotationLayerState) {
-    const result = super.getUpdatedAnnotation(oldAnnotation, mouseState, annotationLayer);
-    const segments = result.segments;
-    if (segments !== undefined && segments.length > 0) {
-      segments.length = 1;
-    }
-    let newSegments = getSelectedAssocatedSegment(annotationLayer);
-    if (newSegments && segments) {
-      newSegments = newSegments.filter(x => segments.findIndex(y => Uint64.equal(x, y)) === -1);
-    }
-    result.segments = [...(segments || []), ...(newSegments || [])] || undefined;
-    return result;
+    return `annotate polygon`;
   }
 
   toJSON() {
     return ANNOTATE_POLYGON_TOOL_ID;
   }
 }
-PlacePolygonTool.prototype.annotationType = AnnotationType.LINE;
+PlacePolygonTool.prototype.annotationType = AnnotationType.POLYGON;
 
 registerTool(
     ANNOTATE_POINT_TOOL_ID,

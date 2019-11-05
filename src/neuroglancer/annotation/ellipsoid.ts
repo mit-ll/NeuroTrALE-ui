@@ -225,19 +225,27 @@ emitAnnotation(vec4(vColor.rgb, 0.5));
 }
 
 registerAnnotationTypeRenderHandler(AnnotationType.ELLIPSOID, {
-  bytes: 6 * 4,
+  bytes: () => 6 * 4,
   serializer: (buffer: ArrayBuffer, offset: number, numAnnotations: number) => {
     const coordinates = new Float32Array(buffer, offset, numAnnotations * 6);
     return (annotation: Ellipsoid, index: number) => {
       const {center, radii} = annotation;
-      const coordinateOffset = index * 6;
+      const coordinateOffset = index;
       coordinates.set(center, coordinateOffset);
       coordinates.set(radii, coordinateOffset + 3);
     };
   },
   sliceViewRenderHelper: SliceViewRenderHelper,
   perspectiveViewRenderHelper: PerspectiveRenderHelper,
-  pickIdsPerInstance: 1,
+  pickIdsPerInstance: (annotations) => {
+    let pickIdCounts = [];
+    for (let i = 0; i < annotations.length; ++i) {
+      pickIdCounts.push(1);
+    }
+
+    return pickIdCounts;
+  },
+  getPickIdCount: () => 1,
   snapPosition: (/*position, objectToData, annotation, partIndex*/) => {
     // FIXME: snap to nearest point on ellipsoid surface
   },

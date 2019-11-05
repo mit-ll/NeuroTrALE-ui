@@ -65,12 +65,12 @@ emitAnnotation(getCircleColor(vColor, borderColor));
 }
 
 registerAnnotationTypeRenderHandler(AnnotationType.POINT, {
-  bytes: 3 * 4,
+  bytes: () => 3 * 4,
   serializer: (buffer: ArrayBuffer, offset: number, numAnnotations: number) => {
     const coordinates = new Float32Array(buffer, offset, numAnnotations * 3);
     return (annotation: Point, index: number) => {
       const {point} = annotation;
-      const coordinateOffset = index * 3;
+      const coordinateOffset = index;
       coordinates[coordinateOffset] = point[0];
       coordinates[coordinateOffset + 1] = point[1];
       coordinates[coordinateOffset + 2] = point[2];
@@ -78,7 +78,15 @@ registerAnnotationTypeRenderHandler(AnnotationType.POINT, {
   },
   sliceViewRenderHelper: RenderHelper,
   perspectiveViewRenderHelper: RenderHelper,
-  pickIdsPerInstance: 1,
+  pickIdsPerInstance: (annotations) => {
+    let pickIdCounts = [];
+    for (let i = 0; i < annotations.length; ++i) {
+      pickIdCounts.push(1);
+    }
+
+    return pickIdCounts;
+  },
+  getPickIdCount: () => 1,
   snapPosition: (position: vec3, objectToData, data, offset) => {
     vec3.transformMat4(position, <vec3>new Float32Array(data, offset, 3), objectToData);
   },

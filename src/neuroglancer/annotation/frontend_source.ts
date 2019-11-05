@@ -47,11 +47,12 @@ export class AnnotationGeometryData {
 
   constructor(x: any) {
     this.data = x.data;
-    const typeToIds = this.typeToIds = x.typeToIds;
+    //const typeToIds = this.typeToIds = x.typeToIds;
     let numPickIds = 0;
     for (const annotationType of annotationTypes) {
-      numPickIds += getAnnotationTypeRenderHandler(annotationType).pickIdsPerInstance *
-          typeToIds[annotationType].length;
+    //  numPickIds += getAnnotationTypeRenderHandler(annotationType).pickIdsPerInstance *
+    //      typeToIds[annotationType].length;
+        numPickIds += getAnnotationTypeRenderHandler(annotationType).pickIdsPerInstance([]).reduce((a, b) => a + b, 0); // TODO Empty array?
     }
     this.numPickIds = numPickIds;
     this.typeToOffset = x.typeToOffset;
@@ -215,7 +216,8 @@ function updateAnnotation(chunk: AnnotationGeometryData, annotation: Annotation)
     insertionPoint = ~insertionPoint;
     ids.splice(insertionPoint, 0, annotation.id);
     const newData = new Uint8Array(chunk.data!.length + numBytes);
-    chunk.numPickIds += renderHandler.pickIdsPerInstance;
+    //chunk.numPickIds += renderHandler.pickIdsPerInstance;
+    chunk.numPickIds += renderHandler.getPickIdCount(annotation);
     offset = chunk.typeToOffset![type] + numBytes * insertionPoint;
     newData.set(chunk.data!.subarray(0, offset), 0);
     newData.set(chunk.data!.subarray(offset), offset + numBytes);
@@ -233,17 +235,18 @@ function updateAnnotation(chunk: AnnotationGeometryData, annotation: Annotation)
   chunk.bufferValid = false;
 }
 
-function deleteAnnotation(chunk: AnnotationGeometryData, type: AnnotationType, id: AnnotationId) {
+function deleteAnnotation(chunk: AnnotationGeometryData, type: AnnotationType, id: AnnotationId, annotation: Annotation) {
   let ids = chunk.typeToIds![type];
   const handler = getAnnotationTypeRenderHandler(type);
-  const numBytes = handler.bytes;
+  const numBytes = handler.bytes(annotation);
   let insertionPoint = binarySearch(ids, id, (a, b) => a < b ? -1 : a === b ? 0 : 1);
   if (insertionPoint < 0) {
     return false;
   }
-  chunk.numPickIds -= handler.pickIdsPerInstance;
+  //chunk.numPickIds -= handler.pickIdsPerInstance;
+  chunk.numPickIds -= handler.getPickIdCount(annotation);
   ids.splice(insertionPoint, 1);
-  const offset = chunk.typeToOffset![type] + handler.bytes * insertionPoint;
+  const offset = chunk.typeToOffset![type] + numBytes * insertionPoint;
   const newData = new Uint8Array(chunk.data!.length - numBytes);
   newData.set(chunk.data!.subarray(0, offset), 0);
   newData.set(chunk.data!.subarray(offset + numBytes), offset);
@@ -371,7 +374,7 @@ export class MultiscaleAnnotationSource extends SharedObject implements
       };
       localUpdates.set(id, localUpdate);
       this.forEachPossibleChunk(annotation, chunk => {
-        deleteAnnotation(chunk.data, annotation.type, id);
+        deleteAnnotation(chunk.data, annotation.type, id, annotation);
       });
       if (newAnnotation !== null) {
         // Add to temporary chunk.
@@ -380,7 +383,7 @@ export class MultiscaleAnnotationSource extends SharedObject implements
     } else {
       if (newAnnotation === null) {
         // Annotation has a local update already, so we need to delete it from the temporary chunk.
-        deleteAnnotation(this.temporary.data, annotation.type, annotation.id);
+        deleteAnnotation(this.temporary.data, annotation.type, annotation.id, annotation);
       } else {
         // Modify existing entry in temporary chunk.
         updateAnnotation(this.temporary.data, newAnnotation);
@@ -513,7 +516,7 @@ export class MultiscaleAnnotationSource extends SharedObject implements
       this.localUpdates.set(newAnnotation.id, localUpdate);
       if (localUpdate.reference.value !== null) {
         localUpdate.reference.value!.id = newAnnotation.id;
-        deleteAnnotation(this.temporary.data, localUpdate.type, id);
+        deleteAnnotation(this.temporary.data, localUpdate.type, id, newAnnotation);
         updateAnnotation(this.temporary.data, localUpdate.reference.value!);
       }
       localUpdate.reference.changed.dispatch();
@@ -571,8 +574,8 @@ export class MultiscaleAnnotationSource extends SharedObject implements
   }
 
   private revertLocalUpdate(localUpdate: LocalUpdateUndoState) {
-    deleteAnnotation(this.temporary.data, localUpdate.type, localUpdate.reference.id);
     const {existingAnnotation} = localUpdate;
+    deleteAnnotation(this.temporary.data, localUpdate.type, localUpdate.reference.id, existingAnnotation!);
     if (existingAnnotation !== undefined) {
       this.forEachPossibleChunk(existingAnnotation, chunk => {
         updateAnnotation(chunk.data, existingAnnotation);

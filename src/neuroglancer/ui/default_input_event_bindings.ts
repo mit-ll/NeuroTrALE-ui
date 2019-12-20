@@ -33,6 +33,7 @@ export function getDefaultGlobalBindings() {
     for (let i = 1; i <= 9; ++i) {
       map.set('digit' + i, 'toggle-layer-' + i);
       map.set('control+digit' + i, 'select-layer-' + i);
+      map.set('alt+digit' + i, 'switch-annotation-to-layer-' + i)
     }
 
     map.set('keyn', 'add-layer');

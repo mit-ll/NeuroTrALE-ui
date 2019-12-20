@@ -113,7 +113,7 @@ emitAnnotation(getCircleColor(vColor, borderColor));
 
     const pointCount = context.byteCount.reduce((a, b) => a + b, 0) / (4 * 3);
     this.enable(shader, context, () => {
-      this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 2, 1.0, Math.floor(pointCount / 2));  
+      this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 6, 1.0, Math.floor(pointCount / 2));  
     });
 
 
@@ -149,7 +149,7 @@ emitAnnotation(getCircleColor(vColor, borderColor));
 
   draw(context: AnnotationRenderContext) {
     this.drawEdges(context);
-    this.drawEndpoints(context);
+    //this.drawEndpoints(context);
   }
 }
 

@@ -65,6 +65,8 @@ export interface AnnotationBase {
 
   id: AnnotationId;
   type: AnnotationType;
+  anntype?: string|undefined;
+  reviewed?: string|undefined;
 
   segments?: Uint64[];
 }
@@ -259,6 +261,8 @@ export function annotationToJson(annotation: Annotation) {
   result.type = AnnotationType[annotation.type].toLowerCase();
   result.id = annotation.id;
   result.description = annotation.description || undefined;
+  result.anntype = annotation.anntype;
+  result.reviewed = annotation.reviewed;
   const {segments} = annotation;
   if (segments !== undefined && segments.length > 0) {
     result.segments = segments.map(x => x.toString());
@@ -275,6 +279,8 @@ export function restoreAnnotation(obj: any, allowMissingId = false): Annotation 
   const result: Annotation = <any>{
     id,
     description: verifyObjectProperty(obj, 'description', verifyOptionalString),
+    anntype: verifyObjectProperty(obj, 'anntype', verifyOptionalString),
+    reviewed: verifyObjectProperty(obj, 'reviewed', verifyOptionalString),
     segments: verifyObjectProperty(
         obj, 'segments',
         x => x === undefined ? undefined : parseArray(x, y => Uint64.parseString(y))),
@@ -344,11 +350,15 @@ export class AnnotationSource extends RefCounted implements AnnotationSourceSign
     return this.annotationMap.get(id);
   }
 
-  delete(reference: AnnotationReference) {
+  delete(reference: AnnotationReference, nullifyReference?: Boolean) {
     if (reference.value === null) {
       return;
     }
-    reference.value = null;
+
+    if (nullifyReference !== false) {
+      reference.value = null;
+    }
+    
     this.annotationMap.delete(reference.id);
     this.pending.delete(reference.id);
     reference.changed.dispatch();

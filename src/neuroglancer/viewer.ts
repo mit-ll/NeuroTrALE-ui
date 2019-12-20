@@ -25,7 +25,7 @@ import {InputEventBindingHelpDialog} from 'neuroglancer/help/input_event_binding
 import {allRenderLayerRoles, LayerManager, LayerSelectedValues, MouseSelectionState, RenderLayerRole, SelectedLayerState} from 'neuroglancer/layer';
 import {LayerDialog} from 'neuroglancer/layer_dialog';
 import {RootLayoutContainer} from 'neuroglancer/layer_groups_layout';
-import {TopLevelLayerListSpecification} from 'neuroglancer/layer_specification';
+import {TopLevelLayerListSpecification, ManagedUserLayerWithSpecification} from 'neuroglancer/layer_specification';
 import {NavigationState, Pose} from 'neuroglancer/navigation_state';
 import {overlaysOpen} from 'neuroglancer/overlay';
 import {StatusMessage} from 'neuroglancer/status';
@@ -56,6 +56,7 @@ import {MousePositionWidget, PositionWidget, VoxelSizeWidget} from 'neuroglancer
 import {TrackableScaleBarOptions} from 'neuroglancer/widget/scale_bar';
 import {makeTextIconButton} from 'neuroglancer/widget/text_icon_button';
 import {RPC} from 'neuroglancer/worker_rpc';
+import { AnnotationUserLayer } from './annotation/user_layer';
 
 declare var NEUROGLANCER_OVERRIDE_DEFAULT_VIEWER_OPTIONS: any
 
@@ -197,6 +198,8 @@ export class Viewer extends RefCounted implements ViewerState {
   scaleBarOptions = new TrackableScaleBarOptions();
   contextMenu: ContextMenu;
   statisticsDisplayState = new StatisticsDisplayState();
+  currentAnnotationZIndex:null|number = null;
+  discardStateSaveRequests:boolean = false;
 
   layerSelectedValues =
       this.registerDisposer(new LayerSelectedValues(this.layerManager, this.mouseState));
@@ -561,6 +564,47 @@ export class Viewer extends RefCounted implements ViewerState {
           this.selectedLayer.visible = true;
         }
       });
+
+      this.bindAction(`switch-annotation-to-layer-${i}`, () => {
+        if (!(this.selectedLayer.layer instanceof ManagedUserLayerWithSpecification) || !(this.selectedLayer.layer.layer instanceof AnnotationUserLayer)) {
+          return;
+        }
+
+        const managedLayers = this.layerManager.managedLayers;
+        if (managedLayers.length < i || !(managedLayers[i - 1].layer instanceof AnnotationUserLayer)) { // The layer to move the annotation to doesn't exist.
+          return;
+        }
+        
+        const layerToMoveTo = managedLayers[i - 1].layer;
+        if (!(layerToMoveTo instanceof AnnotationUserLayer)) { // The layer to move to isn't an annotation layer.
+          return;
+        }
+        
+        const layerToMoveFrom = this.selectedLayer.layer.layer;
+        const annotationToMove = layerToMoveFrom.selectedAnnotation.reference;
+
+        if (!annotationToMove) { // No annotation is currently selected.
+          return;
+        }
+
+        const managedLayer = managedLayers[i - 1];
+        if (managedLayer instanceof ManagedUserLayerWithSpecification) {
+          annotationToMove.value!.anntype = managedLayer.initialSpecification.anntype;
+        }
+
+        this.discardStateSaveRequests = true;
+        layerToMoveTo.localAnnotations.add(annotationToMove.value!, true);
+        //layerToMoveTo.localAnnotations.childAdded.dispatch(annotationToMove.value!);
+
+        this.discardStateSaveRequests = false; // TODO Usage of this flag is awful.
+        layerToMoveFrom.localAnnotations.delete(annotationToMove, false);
+        //layerToMoveFrom.localAnnotations.childDeleted.dispatch(annotationToMove.id);
+
+        layerToMoveTo.selectedAnnotation.value = {id: annotationToMove.id, partIndex: 0};
+
+        this.selectedLayer.layer = managedLayers[i - 1];
+        this.selectedLayer.changed.dispatch();
+      });
     }
 
     this.bindAction('annotate', () => {
@@ -621,6 +665,216 @@ export class Viewer extends RefCounted implements ViewerState {
       if (chunkQueueManager.chunkUpdateDeadline === null) {
         chunkQueueManager.chunkUpdateDeadline = Date.now() + 10;
       }
+
+      // If the z index has changed, load the appropriate set of annotations.
+      if (this.currentAnnotationZIndex !== this.perspectiveNavigationState.pose.position.spatialCoordinates[2]) {
+        this.currentAnnotationZIndex = this.perspectiveNavigationState.pose.position.spatialCoordinates[2]
+        this.loadAnnotations();
+      }
     }
+  }
+
+  private loadAnnotations() {
+    this.layerManager.layerSet.forEach(layer => {
+      if (layer instanceof ManagedUserLayerWithSpecification && layer.sourceUrl && layer.sourceUrl.indexOf("precomputed") != -1) {
+        this.addContourAnnotationLayers(layer.sourceUrl);
+        this.addCentroidAnnotationLayer(layer.sourceUrl);
+      }
+    });
+  }
+
+  private addCentroidAnnotationLayer(precomputedUrl:string) {
+    const jsonUrl = "http" + precomputedUrl.split("http")[1] + "/annotations/centroids.json";
+
+    let centroidsExist = false;
+    let managedLayers:any = this.layerManager.managedLayers;
+    for (let i = 0; i < managedLayers.length; ++i) {
+      if (managedLayers[i].sourceUrl == jsonUrl) {
+        centroidsExist = true;
+      }
+    }
+
+    if (centroidsExist) { // The centroids have already been loaded.
+      return;
+    }
+
+    this.getAnnotationLayerData(jsonUrl, (fileData:string) => {
+      let annotations = JSON.parse(fileData);
+      let layers:any = {};
+
+      for (let i = 0; i < annotations.length; ++i) {
+        if (!layers[annotations[i].anntype]) {
+          layers[annotations[i].anntype] = [];
+        }
+
+        layers[annotations[i].anntype].push(annotations[i]);
+      }
+
+      const outlineColors:any = [
+        {"red": [1, 0, 0]},
+        {"blue": [0, 0.5, 1]},
+        {"green": [0, 0.9, 0]},
+        {"teal": [0, 1, 1]},
+        {"orange": [1, 0.7, 0]},
+        {"purple": [1, 0, 1]},
+        {"yellow": [1, 1, 0]}
+      ];
+
+      let colorIndex = 0;
+      for (let cellType in layers) {
+        const colorName = Object.keys(outlineColors[colorIndex])[0];
+        const color = outlineColors[colorIndex][colorName];
+        let layerBaseName = `centroids-${cellType}`;
+        let layerName = `${layerBaseName} (${colorName})`;
+
+        let existingLayer = this.layerManager.getLayerByName(layerName); // TODO Do substring matching to find layerBaseName.
+        if (existingLayer) {
+          this.layerManager.removeManagedLayer(existingLayer);
+        }
+
+        const layer = new ManagedUserLayerWithSpecification(layerName, {}, this.layerSpecification);
+        this.layerSpecification.initializeLayerFromSpec(layer, {type: "annotation", annotations: layers[cellType], anntype: cellType});
+
+        const annotationLayer = layer.layer;
+        if (annotationLayer instanceof AnnotationUserLayer) {
+          annotationLayer.annotationColor.value[0] = color[0];
+          annotationLayer.annotationColor.value[1] = color[1];
+          annotationLayer.annotationColor.value[2] = color[2];
+          annotationLayer.annotationColor.changed.dispatch();
+
+          annotationLayer.localAnnotations.changed.add(() => {
+            this.saveAnnotationLayerData(annotationLayer.sourceUrl!);
+          });
+
+          annotationLayer.sourceUrl = jsonUrl;
+        }
+
+        layer.sourceUrl = jsonUrl;
+        this.layerSpecification.add(layer);
+
+        //colorIndex = (((colorIndex - 1) % outlineColors.length) + outlineColors.length) % outlineColors.length;
+        colorIndex = (colorIndex + 1) % outlineColors.length;
+      }
+    })
+  }
+
+  private addContourAnnotationLayers(precomputedUrl:string) {
+    const zIndex = ("0000" + Math.floor(this.currentAnnotationZIndex!)).slice(-4); // Zero pad.
+    const jsonUrl = "http" + precomputedUrl.split("http")[1] + "/annotations/z-" + zIndex + ".json";
+
+    this.getAnnotationLayerData(jsonUrl, (fileData:string) => {
+      let annotations = JSON.parse(fileData);
+      let layers:any = {};
+
+      for (let i = 0; i < annotations.length; ++i) {
+        if (!layers[annotations[i].anntype]) {
+          layers[annotations[i].anntype] = [];
+        }
+
+        layers[annotations[i].anntype].push(annotations[i]);
+      }
+
+      const outlineColors:any = [
+        {"red": [1, 0, 0]},
+        {"blue": [0, 0.5, 1]},
+        {"green": [0, 0.9, 0]},
+        {"teal": [0, 1, 1]},
+        {"orange": [1, 0.7, 0]},
+        {"purple": [1, 0, 1]},
+        {"yellow": [1, 1, 0]}
+      ];
+
+      let layersToDelete:any = [];
+      this.layerManager.managedLayers.forEach(layer => {
+        if (layer.layer instanceof AnnotationUserLayer && layer.name.indexOf("contours") != -1) {
+          layersToDelete.push(layer.name);
+        }
+      });
+
+      let colorIndex = 0;
+      for (let cellType in layers) {
+        const colorName = Object.keys(outlineColors[colorIndex])[0];
+        const color = outlineColors[colorIndex][colorName];
+        let layerBaseName = `contours-${cellType}`;
+        let layerName = `${layerBaseName} (${colorName})`;
+
+        let existingLayer = this.layerManager.getLayerByName(layerName); // TODO Do substring matching to find layerBaseName.
+        if (existingLayer) {
+          this.layerManager.removeManagedLayer(existingLayer);
+          
+          let layerNameIndex = layersToDelete.indexOf(layerName);
+          if (layerNameIndex != -1) {
+            layersToDelete.splice(layerNameIndex, 1);
+          }
+        }
+
+        const layer = new ManagedUserLayerWithSpecification(layerName, {}, this.layerSpecification);
+        this.layerSpecification.initializeLayerFromSpec(layer, {type: "annotation", annotations: layers[cellType], anntype: cellType});
+
+        const annotationLayer = layer.layer;
+        if (annotationLayer instanceof AnnotationUserLayer) {
+          annotationLayer.annotationColor.value[0] = color[0];
+          annotationLayer.annotationColor.value[1] = color[1];
+          annotationLayer.annotationColor.value[2] = color[2];
+          annotationLayer.annotationColor.changed.dispatch();
+
+          annotationLayer.localAnnotations.changed.add(() => {
+            this.saveAnnotationLayerData(annotationLayer.sourceUrl!);
+          });
+
+          annotationLayer.sourceUrl = jsonUrl;
+        }
+
+        layer.sourceUrl = jsonUrl;
+        this.layerSpecification.add(layer);
+
+        colorIndex = (colorIndex + 1) % outlineColors.length;
+      }
+
+      layersToDelete.forEach((layerName: string) => {
+        let existingLayer:any = this.layerManager.getLayerByName(layerName);
+        //this.layerManager.removeManagedLayer(existingLayer!);
+
+        if (existingLayer && existingLayer.layer instanceof AnnotationUserLayer) {
+          existingLayer.layer.localAnnotations.clear();
+          existingLayer.sourceUrl = jsonUrl;
+          existingLayer.layer.sourceUrl = jsonUrl;
+        }
+      });
+    })
+  }
+
+  private saveAnnotationLayerData(layerSource:string) {
+    if (this.discardStateSaveRequests) {
+      return;
+    }
+
+    let layerData = [];
+
+    // Re-combine the data for the layer.
+    let managedLayers:any = this.layerManager.managedLayers;
+    for (let i = 0; i < managedLayers.length; ++i) {
+      if (managedLayers[i].layer instanceof AnnotationUserLayer && managedLayers[i].layer.sourceUrl == layerSource) {
+        layerData.push(...managedLayers[i].layer.localAnnotations.toJSON());
+      }
+    }
+
+    fetch(layerSource, {
+      method: "PUT",
+      body: JSON.stringify(layerData)
+    });
+  }
+
+  private getAnnotationLayerData(layerSource:string, callback:Function) {
+    var rawFile = new XMLHttpRequest();
+    rawFile.open("GET", layerSource, true);
+    rawFile.onreadystatechange = function () {
+      if(rawFile.readyState === 4) {
+        if(rawFile.status === 200 || rawFile.status == 0) {
+          callback(rawFile.responseText);
+        }
+      }
+    }
+    rawFile.send(null);
   }
 }

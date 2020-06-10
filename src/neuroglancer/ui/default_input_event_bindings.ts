@@ -111,6 +111,7 @@ export function getDefaultSliceViewPanelBindings() {
           'at:mousedown0': {action: 'translate-via-mouse-drag', stopPropagation: true},
           'at:shift+mousedown0': {action: 'rotate-via-mouse-drag', stopPropagation: true},
           'at:touchtranslate1': 'translate-z-via-touchtranslate',
+          'at:dblclick0': 'set-annotation-block-coordinates',
         },
         {parents: [[getDefaultRenderedDataPanelBindings(), Number.NEGATIVE_INFINITY]]});
   }

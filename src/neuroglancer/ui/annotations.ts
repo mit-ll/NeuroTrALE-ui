@@ -21,7 +21,7 @@
 import './annotations.css';
 
 import debounce from 'lodash/debounce';
-import {Annotation, AnnotationReference, AnnotationType, AxisAlignedBoundingBox, Ellipsoid, getAnnotationTypeHandler, Line, Polygon} from 'neuroglancer/annotation';
+import {Annotation, AnnotationReference, AnnotationType, AxisAlignedBoundingBox, Ellipsoid, getAnnotationTypeHandler, Line, Polygon, LineString} from 'neuroglancer/annotation';
 import {AnnotationLayer, AnnotationLayerState, PerspectiveViewAnnotationLayer, SliceViewAnnotationLayer} from 'neuroglancer/annotation/frontend';
 import {DataFetchSliceViewRenderLayer, MultiscaleAnnotationSource} from 'neuroglancer/annotation/frontend_source';
 import {setAnnotationHoverStateFromMouseState} from 'neuroglancer/annotation/selection';
@@ -353,6 +353,9 @@ export function getPositionSummary(
     case AnnotationType.POLYGON:
       element.appendChild(makePointLinkWithTransform(annotation.points[0])); // TODO Calculate center point.
       element.appendChild(document.createTextNode(' / ' + annotation.points.length))
+    case AnnotationType.LINESTRING:
+      element.appendChild(makePointLinkWithTransform(annotation.points[0])); // TODO Calculate center point.
+      element.appendChild(document.createTextNode(' / ' + annotation.points.length))
   }
 }
 
@@ -463,6 +466,14 @@ export class AnnotationLayerView extends Tab {
         this.layer.tool.value = new PlacePolygonTool(this.layer, {});
       });
       toolbox.appendChild(polygonButton);
+
+      const linestringButton = document.createElement('button');
+      linestringButton.textContent = getAnnotationTypeHandler(AnnotationType.LINESTRING).icon;
+      linestringButton.title = 'Annotate line string';
+      linestringButton.addEventListener('click', () => {
+        this.layer.tool.value = new PlaceLineStringTool(this.layer, {});
+      });
+      toolbox.appendChild(linestringButton);
     }
     this.element.appendChild(toolbox);
 
@@ -883,6 +894,7 @@ const ANNOTATE_LINE_TOOL_ID = 'annotateLine';
 const ANNOTATE_BOUNDING_BOX_TOOL_ID = 'annotateBoundingBox';
 const ANNOTATE_ELLIPSOID_TOOL_ID = 'annotateSphere';
 const ANNOTATE_POLYGON_TOOL_ID = 'annotatePolygon';
+const ANNOTATE_LINESTRING_TOOL_ID = 'annotateLineString';
 
 export class PlacePointTool extends PlaceAnnotationTool {
   constructor(layer: UserLayerWithAnnotations, options: any) {
@@ -903,6 +915,8 @@ export class PlacePointTool extends PlaceAnnotationTool {
         point:
             vec3.transformMat4(vec3.create(), mouseState.position, annotationLayer.globalToObject),
         type: AnnotationType.POINT,
+        anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
+        reviewed: "unreviewed"
       };
       const reference = annotationLayer.source.add(annotation, /*commit=*/true);
       this.layer.selectedAnnotation.value = {id: reference.id};
@@ -924,10 +938,11 @@ function getMousePositionInAnnotationCoordinates(
   return vec3.transformMat4(vec3.create(), mouseState.position, annotationLayer.globalToObject);
 }
 
-abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
+export abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
   inProgressAnnotation:
       {annotationLayer: AnnotationLayerState, reference: AnnotationReference, disposer: () => void}|
       undefined;
+  isLastUpdate:boolean = false;
 
   abstract getInitialAnnotation(
       mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState): Annotation;
@@ -936,6 +951,7 @@ abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
       annotationLayer: AnnotationLayerState): Annotation;
 
   trigger(mouseState: MouseSelectionState) {
+    this.isLastUpdate = false;
     const {annotationLayer} = this;
     if (annotationLayer === undefined) {
       // Not yet ready.
@@ -966,11 +982,16 @@ abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
           disposer,
         };
       } else {
+        let annotationLayer = this.inProgressAnnotation.annotationLayer;
+
         updatePointB();
         this.inProgressAnnotation.annotationLayer.source.commit(
             this.inProgressAnnotation.reference);
         this.inProgressAnnotation.disposer();
         this.inProgressAnnotation = undefined;
+
+        this.isLastUpdate = true;
+        annotationLayer.source.changed.dispatch();
       }
     }
   }
@@ -1000,11 +1021,45 @@ abstract class PlacePolygonAnnotationTool extends TwoStepAnnotationTool {
         id: '',
         type: this.annotationType,
         description: '',
-        points: [point]
+        points: [point],
+        anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
+        reviewed: "unreviewed"
       };
     }
 
   getUpdatedAnnotation(oldAnnotation: Polygon, mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState):
+    Annotation {
+      const point = getMousePositionInAnnotationCoordinates(mouseState, annotationLayer);
+      const lastPoint = oldAnnotation.points[oldAnnotation.points.length - 1];
+
+      // Only record the new point if the cursor has moved.
+      if (point[0] != lastPoint[0] || point[1] != lastPoint[1] || point[2] != lastPoint[2]) {        
+        if (!isNaN(point[0]) && !isNaN(point[1]) && !isNaN(point[2])) {
+          oldAnnotation.points.push(point);
+        }
+      }
+
+      return oldAnnotation;
+    }
+}
+
+abstract class PlaceLineStringAnnotationTool extends TwoStepAnnotationTool {
+  annotationType: AnnotationType.LINESTRING;
+
+  getInitialAnnotation(mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState):
+    Annotation {
+      const point = getMousePositionInAnnotationCoordinates(mouseState, annotationLayer);
+      return <LineString>{
+        id: '',
+        type: this.annotationType,
+        description: '',
+        points: [point],
+        anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
+        reviewed: "unreviewed"
+      };
+    }
+
+  getUpdatedAnnotation(oldAnnotation: LineString, mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState):
     Annotation {
       const point = getMousePositionInAnnotationCoordinates(mouseState, annotationLayer);
       const lastPoint = oldAnnotation.points[oldAnnotation.points.length - 1];
@@ -1033,6 +1088,8 @@ abstract class PlaceTwoCornerAnnotationTool extends TwoStepAnnotationTool {
       description: '',
       pointA: point,
       pointB: point,
+      anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
+      reviewed: "unreviewed"
     };
   }
 
@@ -1100,6 +1157,8 @@ class PlaceSphereTool extends TwoStepAnnotationTool {
       segments: getSelectedAssocatedSegment(annotationLayer),
       center: point,
       radii: vec3.fromValues(0, 0, 0),
+      anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
+      reviewed: "unreviewed"
     };
   }
 
@@ -1147,6 +1206,17 @@ export class PlacePolygonTool extends PlacePolygonAnnotationTool {
 }
 PlacePolygonTool.prototype.annotationType = AnnotationType.POLYGON;
 
+export class PlaceLineStringTool extends PlaceLineStringAnnotationTool {
+  get description() {
+    return `annotate line string`;
+  }
+
+  toJSON() {
+    return ANNOTATE_LINESTRING_TOOL_ID;
+  }
+}
+PlaceLineStringAnnotationTool.prototype.annotationType = AnnotationType.LINESTRING;
+
 registerTool(
     ANNOTATE_POINT_TOOL_ID,
     (layer, options) => new PlacePointTool(<UserLayerWithAnnotations>layer, options));
@@ -1162,8 +1232,12 @@ registerTool(
 registerTool(
     ANNOTATE_POLYGON_TOOL_ID,
   (layer, options) => new PlacePolygonTool(<UserLayerWithAnnotations>layer, options));
+registerTool(
+    ANNOTATE_LINESTRING_TOOL_ID,
+  (layer, options) => new PlaceLineStringTool(<UserLayerWithAnnotations>layer, options));
 
 export interface UserLayerWithAnnotations extends UserLayer {
+  annotationType?: any;
   annotationLayerState: WatchableRefCounted<AnnotationLayerState>;
   selectedAnnotation: SelectedAnnotationState;
   annotationColor: TrackableRGB;

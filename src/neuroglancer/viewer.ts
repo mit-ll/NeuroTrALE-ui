@@ -57,6 +57,7 @@ import {TrackableScaleBarOptions} from 'neuroglancer/widget/scale_bar';
 import {makeTextIconButton} from 'neuroglancer/widget/text_icon_button';
 import {RPC} from 'neuroglancer/worker_rpc';
 import { AnnotationUserLayer } from './annotation/user_layer';
+import { TwoStepAnnotationTool } from 'neuroglancer/ui/annotations.ts';
 
 declare var NEUROGLANCER_OVERRIDE_DEFAULT_VIEWER_OPTIONS: any
 
@@ -200,6 +201,13 @@ export class Viewer extends RefCounted implements ViewerState {
   statisticsDisplayState = new StatisticsDisplayState();
   currentAnnotationZIndex:null|number = null;
   discardStateSaveRequests:boolean = false;
+  loadingContourCount:number = 0;
+  loadingCentroidCount:number = 0;
+  loadingAxonCount:number = 0;
+  abortControllerAxon:AbortController|null = null;
+  abortControllerContour:AbortController|null = null;
+  abortControllerCentroid:AbortController|null = null;
+  desiredAnnotationCoordinates:vec3 = vec3.fromValues(0, 0, 0);
 
   layerSelectedValues =
       this.registerDisposer(new LayerSelectedValues(this.layerManager, this.mouseState));
@@ -544,6 +552,16 @@ export class Viewer extends RefCounted implements ViewerState {
       });
     }
 
+    this.bindAction('set-annotation-block-coordinates', () => {
+      this.navigationState.voxelSize.voxelFromSpatial(this.desiredAnnotationCoordinates, this.mouseState.position);
+
+      this.desiredAnnotationCoordinates[0] = Math.floor(this.desiredAnnotationCoordinates[0]);
+      this.desiredAnnotationCoordinates[1] = Math.floor(this.desiredAnnotationCoordinates[1]);
+      this.desiredAnnotationCoordinates[2] = Math.floor(this.desiredAnnotationCoordinates[2]);
+
+      this.loadAnnotations();
+    });
+
     this.bindAction('help', () => this.showHelpDialog());
 
     for (let i = 1; i <= 9; ++i) {
@@ -679,12 +697,140 @@ export class Viewer extends RefCounted implements ViewerState {
       if (layer instanceof ManagedUserLayerWithSpecification && layer.sourceUrl && layer.sourceUrl.indexOf("precomputed") != -1) {
         this.addContourAnnotationLayers(layer.sourceUrl);
         this.addCentroidAnnotationLayer(layer.sourceUrl);
+        this.addAxonAnnotationLayer(layer.sourceUrl);
       }
     });
   }
 
+  private constructAxonAnnotationUrl(precomputedUrl:string) {
+    const xIndex = this.desiredAnnotationCoordinates[0];
+    const yIndex = this.desiredAnnotationCoordinates[1];
+    const zIndex = this.desiredAnnotationCoordinates[2];
+    const jsonUrl = "http" + precomputedUrl.split("http")[1] + `/annotations/x${xIndex}y${yIndex}z${zIndex}/fibers.json`;
+
+    return jsonUrl;
+  }
+
+  private addAxonAnnotationLayer(precomputedUrl:string) {
+    const jsonUrl = this.constructAxonAnnotationUrl(precomputedUrl);
+
+    let axonsExist = false;
+    let managedLayers:any = this.layerManager.managedLayers;
+    for (let i = 0; i < managedLayers.length; ++i) {
+      if (managedLayers[i].sourceUrl == jsonUrl) {
+        axonsExist = true;
+      }
+    }
+
+    if (axonsExist) { // The Axons have already been loaded.
+      return;
+    }
+
+    if (this.abortControllerAxon) {
+      this.abortControllerAxon.abort();
+      this.abortControllerAxon = null;
+    }
+    this.abortControllerAxon = new AbortController();
+    ++this.loadingAxonCount;
+    this.getAnnotationLayerData(jsonUrl, (fileData:any) => {
+      --this.loadingAxonCount;
+      // Check to make sure the user hasn't navigated away from the location of the original request.
+      const currentJsonUrl = this.constructAxonAnnotationUrl(precomputedUrl);
+      if (currentJsonUrl != jsonUrl) { // The data is no longer needed.
+        return;
+      }
+
+      let annotations = fileData;
+      let layers:any = {};
+
+      for (let i = 0; i < annotations.length; ++i) {
+        if (!layers[annotations[i].anntype]) {
+          layers[annotations[i].anntype] = [];
+        }
+
+        for (let j = 0; j < annotations[i].length; ++j) {
+          let x = annotations[i][j][0];
+          let y = annotations[i][j][1];
+          let z = annotations[i][j][2];
+
+          annotations[i][j][0] = y;
+          annotations[i][j][1] = x;
+          annotations[i][j][2] = z;
+        }
+
+        layers[annotations[i].anntype].push(annotations[i]);
+      }
+
+      const outlineColors:any = [
+        {"red": [1, 0, 0]},
+        {"blue": [0, 0.5, 1]},
+        {"green": [0, 0.9, 0]},
+        {"teal": [0, 1, 1]},
+        {"orange": [1, 0.7, 0]},
+        {"purple": [1, 0, 1]},
+        {"yellow": [1, 1, 0]}
+      ];
+
+      let colorIndex = 0;
+      for (let cellType in layers) {
+        const colorName = Object.keys(outlineColors[colorIndex])[0];
+        const color = outlineColors[colorIndex][colorName];
+        let layerBaseName = `axons-${cellType}`;
+        let layerName = `${layerBaseName} (${colorName})`;
+
+        let existingLayer = null;
+        for (let i = 0; i < this.layerManager.managedLayers.length; ++i) {
+          let layer = this.layerManager.managedLayers[i];
+          if (layer.layer instanceof AnnotationUserLayer && layer.name.indexOf(layerBaseName) != -1) {
+            existingLayer = layer;
+            break;
+          }
+        };
+
+        if (existingLayer) {
+          layerName = existingLayer.name;
+          this.layerManager.removeManagedLayer(existingLayer);
+        }
+
+        const layer = new ManagedUserLayerWithSpecification(layerName, {}, this.layerSpecification);
+        this.layerSpecification.initializeLayerFromSpec(layer, {type: "annotation", annotations: layers[cellType], anntype: cellType});
+
+        const annotationLayer = layer.layer;
+        if (annotationLayer instanceof AnnotationUserLayer) {
+          annotationLayer.annotationColor.value[0] = color[0];
+          annotationLayer.annotationColor.value[1] = color[1];
+          annotationLayer.annotationColor.value[2] = color[2];
+          annotationLayer.annotationColor.changed.dispatch();
+
+          annotationLayer.localAnnotations.changed.add(() => {
+            this.saveAnnotationLayerData(annotationLayer.sourceUrl!);
+          });
+
+          annotationLayer.sourceUrl = jsonUrl;
+          annotationLayer.annotationType = cellType;
+        }
+
+        layer.sourceUrl = jsonUrl;
+        this.layerSpecification.add(layer);
+
+        //colorIndex = (((colorIndex - 1) % outlineColors.length) + outlineColors.length) % outlineColors.length;
+        colorIndex = (colorIndex + 1) % outlineColors.length;
+      }
+
+    }, this.abortControllerAxon);
+  }
+
+  private constructCentroidAnnotationUrl(precomputedUrl:string) {
+    const xIndex = this.desiredAnnotationCoordinates[0];
+    const yIndex = this.desiredAnnotationCoordinates[1];
+    const zIndex = this.desiredAnnotationCoordinates[2];
+    const jsonUrl = "http" + precomputedUrl.split("http")[1] + `/annotations/x${xIndex}y${yIndex}z${zIndex}/centroids.json`;
+
+    return jsonUrl;
+  }
+
   private addCentroidAnnotationLayer(precomputedUrl:string) {
-    const jsonUrl = "http" + precomputedUrl.split("http")[1] + "/annotations/centroids.json";
+    const jsonUrl = this.constructCentroidAnnotationUrl(precomputedUrl);
 
     let centroidsExist = false;
     let managedLayers:any = this.layerManager.managedLayers;
@@ -698,8 +844,22 @@ export class Viewer extends RefCounted implements ViewerState {
       return;
     }
 
-    this.getAnnotationLayerData(jsonUrl, (fileData:string) => {
-      let annotations = JSON.parse(fileData);
+    if (this.abortControllerCentroid) {
+      this.abortControllerCentroid.abort();
+      this.abortControllerCentroid = null;
+    }
+    this.abortControllerCentroid = new AbortController();
+    ++this.loadingCentroidCount;
+    this.getAnnotationLayerData(jsonUrl, (fileData:any) => {
+      --this.loadingCentroidCount;
+
+      // Check to make sure the user hasn't navigated away from the location of the original request.
+      const currentJsonUrl = this.constructCentroidAnnotationUrl(precomputedUrl);
+      if (currentJsonUrl != jsonUrl) { // The data is no longer needed.
+        return;
+      }
+
+      let annotations = fileData;
       let layers:any = {};
 
       for (let i = 0; i < annotations.length; ++i) {
@@ -727,8 +887,17 @@ export class Viewer extends RefCounted implements ViewerState {
         let layerBaseName = `centroids-${cellType}`;
         let layerName = `${layerBaseName} (${colorName})`;
 
-        let existingLayer = this.layerManager.getLayerByName(layerName); // TODO Do substring matching to find layerBaseName.
+        let existingLayer = null;
+        for (let i = 0; i < this.layerManager.managedLayers.length; ++i) {
+          let layer = this.layerManager.managedLayers[i];
+          if (layer.layer instanceof AnnotationUserLayer && layer.name.indexOf(layerBaseName) != -1) {
+            existingLayer = layer;
+            break;
+          }
+        };
+
         if (existingLayer) {
+          layerName = existingLayer.name;
           this.layerManager.removeManagedLayer(existingLayer);
         }
 
@@ -747,6 +916,7 @@ export class Viewer extends RefCounted implements ViewerState {
           });
 
           annotationLayer.sourceUrl = jsonUrl;
+          annotationLayer.annotationType = cellType;
         }
 
         layer.sourceUrl = jsonUrl;
@@ -755,15 +925,38 @@ export class Viewer extends RefCounted implements ViewerState {
         //colorIndex = (((colorIndex - 1) % outlineColors.length) + outlineColors.length) % outlineColors.length;
         colorIndex = (colorIndex + 1) % outlineColors.length;
       }
-    })
+    }, this.abortControllerCentroid);
+  }
+
+  private constructContourAnnotationUrl(precomputedUrl:string) {
+    const xIndex = this.desiredAnnotationCoordinates[0];
+    const yIndex = this.desiredAnnotationCoordinates[1];
+    const zIndex = this.desiredAnnotationCoordinates[2];
+    const zIndexPadded = ("0000" + Math.floor(this.currentAnnotationZIndex!)).slice(-4); // Zero pad.
+    const jsonUrl = "http" + precomputedUrl.split("http")[1] + `/annotations/x${xIndex}y${yIndex}z${zIndex}/z-${zIndexPadded}.json`;
+
+    return jsonUrl;
   }
 
   private addContourAnnotationLayers(precomputedUrl:string) {
-    const zIndex = ("0000" + Math.floor(this.currentAnnotationZIndex!)).slice(-4); // Zero pad.
-    const jsonUrl = "http" + precomputedUrl.split("http")[1] + "/annotations/z-" + zIndex + ".json";
+    const jsonUrl = this.constructContourAnnotationUrl(precomputedUrl);
 
-    this.getAnnotationLayerData(jsonUrl, (fileData:string) => {
-      let annotations = JSON.parse(fileData);
+    if (this.abortControllerContour) {
+      this.abortControllerContour.abort();
+      this.abortControllerContour = null;
+    }
+    this.abortControllerContour = new AbortController();
+    ++this.loadingContourCount;
+    this.getAnnotationLayerData(jsonUrl, (fileData:any) => {
+      --this.loadingContourCount;
+
+      // Check to make sure the user hasn't navigated away from the location of the original request.
+      const currentJsonUrl = this.constructContourAnnotationUrl(precomputedUrl);
+      if (currentJsonUrl != jsonUrl) { // The data is no longer needed.
+        return;
+      }
+
+      let annotations = fileData;
       let layers:any = {};
 
       for (let i = 0; i < annotations.length; ++i) {
@@ -798,8 +991,17 @@ export class Viewer extends RefCounted implements ViewerState {
         let layerBaseName = `contours-${cellType}`;
         let layerName = `${layerBaseName} (${colorName})`;
 
-        let existingLayer = this.layerManager.getLayerByName(layerName); // TODO Do substring matching to find layerBaseName.
+        let existingLayer = null;
+        for (let i = 0; i < this.layerManager.managedLayers.length; ++i) {
+          let layer = this.layerManager.managedLayers[i];
+          if (layer.layer instanceof AnnotationUserLayer && layer.name.indexOf(layerBaseName) != -1) {
+            existingLayer = layer;
+            break;
+          }
+        };
+
         if (existingLayer) {
+          layerName = existingLayer.name;
           this.layerManager.removeManagedLayer(existingLayer);
           
           let layerNameIndex = layersToDelete.indexOf(layerName);
@@ -823,6 +1025,7 @@ export class Viewer extends RefCounted implements ViewerState {
           });
 
           annotationLayer.sourceUrl = jsonUrl;
+          annotationLayer.annotationType = cellType;
         }
 
         layer.sourceUrl = jsonUrl;
@@ -841,11 +1044,25 @@ export class Viewer extends RefCounted implements ViewerState {
           existingLayer.layer.sourceUrl = jsonUrl;
         }
       });
-    })
+    }, this.abortControllerContour);
   }
 
   private saveAnnotationLayerData(layerSource:string) {
     if (this.discardStateSaveRequests) {
+      return;
+    }
+
+    if (this.loadingAxonCount || this.loadingCentroidCount || this.loadingContourCount) {
+      return;
+    }
+
+    let isAnnotationInProgress = false;
+    this.layerManager.managedLayers.forEach(layer => {
+      if (layer.layer instanceof AnnotationUserLayer && layer.layer.tool.value instanceof TwoStepAnnotationTool && !layer.layer.tool.value.isLastUpdate) {
+        isAnnotationInProgress = true;
+      }
+    });
+    if (isAnnotationInProgress) {
       return;
     }
 
@@ -865,16 +1082,10 @@ export class Viewer extends RefCounted implements ViewerState {
     });
   }
 
-  private getAnnotationLayerData(layerSource:string, callback:Function) {
-    var rawFile = new XMLHttpRequest();
-    rawFile.open("GET", layerSource, true);
-    rawFile.onreadystatechange = function () {
-      if(rawFile.readyState === 4) {
-        if(rawFile.status === 200 || rawFile.status == 0) {
-          callback(rawFile.responseText);
-        }
-      }
-    }
-    rawFile.send(null);
+  private getAnnotationLayerData(layerSource:string, callback:Function, abortController:AbortController) {
+    fetch(layerSource, {signal: abortController.signal})
+      .then(response => response.json())
+      .then(data => callback(data))
+      .catch(() => callback([]));
   }
 }

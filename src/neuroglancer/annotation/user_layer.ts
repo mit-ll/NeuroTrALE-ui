@@ -87,6 +87,7 @@ export class AnnotationUserLayer extends Base {
   linkedSegmentationLayer = this.registerDisposer(
       new LayerReference(this.manager.rootLayers.addRef(), isValidLinkedSegmentationLayer));
   filterBySegmentation = new TrackableBoolean(false);
+  annotationType:string;
 
   getAnnotationRenderOptions() {
     const segmentationState =

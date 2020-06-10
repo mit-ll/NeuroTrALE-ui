@@ -46,6 +46,7 @@ export enum AnnotationType {
   AXIS_ALIGNED_BOUNDING_BOX,
   ELLIPSOID,
   POLYGON,
+  LINESTRING,
 }
 
 export const annotationTypes = [
@@ -54,6 +55,7 @@ export const annotationTypes = [
   AnnotationType.AXIS_ALIGNED_BOUNDING_BOX,
   AnnotationType.ELLIPSOID,
   AnnotationType.POLYGON,
+  AnnotationType.LINESTRING,
 ];
 
 export interface AnnotationBase {
@@ -99,7 +101,12 @@ export interface Polygon extends AnnotationBase {
   type: AnnotationType.POLYGON;
 }
 
-export type Annotation = Line|Point|AxisAlignedBoundingBox|Ellipsoid|Polygon;
+export interface LineString extends AnnotationBase {
+  points: vec3[];
+  type: AnnotationType.LINESTRING;
+}
+
+export type Annotation = Line|Point|AxisAlignedBoundingBox|Ellipsoid|Polygon|LineString;
 
 export interface AnnotationTypeHandler<T extends Annotation> {
   icon: string;
@@ -245,6 +252,36 @@ typeHandlers.set(AnnotationType.POLYGON, {
       const {points} = annotation;
 
       //console.log(points);
+
+      for (let i = 0; i < points.length; ++i) {
+        const coordinateOffset = (index + i) * 3;
+        coordinates[coordinateOffset] = points[i][0];
+        coordinates[coordinateOffset + 1] = points[i][1];
+        coordinates[coordinateOffset + 2] = points[i][2];
+      }
+    };
+  },
+});
+
+typeHandlers.set(AnnotationType.LINESTRING, {
+  icon: '┉',
+  description: 'Line String',
+  toJSON: (annotation: LineString) => {
+    return {
+      points: Array.from(annotation.points),
+    };
+  },
+  restoreState: (annotation: LineString, obj: any) => {
+    //annotation.pointA = verifyObjectProperty(obj, 'pointA', verify3dVec);
+    //annotation.pointB = verifyObjectProperty(obj, 'pointB', verify3dVec);
+    // TODO Implement verify3dVecArray?
+    annotation.points = obj.points;
+  },
+  serializedBytes: 100000 * 3 * 4,
+  serializer: (buffer: ArrayBuffer, offset: number, numAnnotations: number) => {
+    const coordinates = new Float32Array(buffer, offset, numAnnotations * 6);
+    return (annotation: LineString, index: number) => {
+      const {points} = annotation;
 
       for (let i = 0; i < points.length; ++i) {
         const coordinateOffset = (index + i) * 3;
@@ -509,7 +546,7 @@ export function serializeAnnotations(allAnnotations: Annotation[][]): Serialized
 }
 
 export class AnnotationSerializer {
-  annotations: [Point[], Line[], AxisAlignedBoundingBox[], Ellipsoid[], Polygon[]] = [[], [], [], [], []];
+  annotations: [Point[], Line[], AxisAlignedBoundingBox[], Ellipsoid[], Polygon[], LineString[]] = [[], [], [], [], [], []];
   add(annotation: Annotation) {
     (<Annotation[]>this.annotations[annotation.type]).push(annotation);
   }

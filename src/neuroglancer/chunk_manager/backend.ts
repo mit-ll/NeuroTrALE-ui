@@ -362,6 +362,8 @@ export class ChunkSource extends ChunkSourceBase {
   }
 }
 
+const MAX_CONCURRENT_CHUNK_DOWNLOADS = 2;
+let chunkDownloadsInProgress = 0;
 function startChunkDownload(chunk: Chunk) {
   const downloadCancellationToken = chunk.downloadCancellationToken = new CancellationTokenSource();
   const startTime = Date.now();
@@ -376,6 +378,7 @@ function startChunkDownload(chunk: Chunk) {
                   (endTime - startTime);
               ++statistics[getChunkDownloadStatisticIndex(ChunkDownloadStatistics.totalChunks)];
               chunk.downloadSucceeded();
+              --chunkDownloadsInProgress;
             }
           },
           (error: any) => {
@@ -383,6 +386,7 @@ function startChunkDownload(chunk: Chunk) {
               chunk.downloadCancellationToken = undefined;
               chunk.downloadFailed(error);
               console.log(`Error retrieving chunk ${chunk}: ${error}`);
+              --chunkDownloadsInProgress;
             }
           });
 }
@@ -841,6 +845,10 @@ export class ChunkQueueManager extends SharedObjectCounterpart {
           let systemMemoryEvictionCandidates = this.systemMemoryEvictionQueue.candidates();
           let systemMemoryCapacity = this.systemMemoryCapacity;
           while (true) {
+            if (chunkDownloadsInProgress > MAX_CONCURRENT_CHUNK_DOWNLOADS) {
+              return;
+            }
+
             let promotionCandidateResult = promotionCandidates.next();
             if (promotionCandidateResult.done) {
               return;
@@ -861,6 +869,7 @@ export class ChunkQueueManager extends SharedObjectCounterpart {
             }
             this.updateChunkState(promotionCandidate, ChunkState.DOWNLOADING);
             startChunkDownload(promotionCandidate);
+            ++chunkDownloadsInProgress;
           }
         };
 

@@ -694,7 +694,7 @@ export class Viewer extends RefCounted implements ViewerState {
 
   private loadAnnotations() {
     this.layerManager.layerSet.forEach(layer => {
-      if (layer instanceof ManagedUserLayerWithSpecification && layer.sourceUrl && layer.sourceUrl.indexOf("precomputed") != -1) {
+      if (layer instanceof ManagedUserLayerWithSpecification && layer.sourceUrl && layer.sourceUrl.indexOf("precomputed://") != -1) {
         this.addContourAnnotationLayers(layer.sourceUrl);
         this.addCentroidAnnotationLayer(layer.sourceUrl);
         this.addAxonAnnotationLayer(layer.sourceUrl);

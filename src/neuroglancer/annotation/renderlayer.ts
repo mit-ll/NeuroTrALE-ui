@@ -428,6 +428,7 @@ function AnnotationRenderLayer<TBase extends {
         mouseState: MouseSelectionState, _pickedValue: Uint64, pickedOffset: number, data: any) {
       const chunk = <AnnotationGeometryDataInterface>data;
       const typeToIds = chunk.typeToIds!;
+      //console.log(pickedOffset);
       //const typeToOffset = chunk.typeToOffset!;
       for (const annotationType of annotationTypes) {
         const ids = typeToIds[annotationType];
@@ -440,7 +441,7 @@ function AnnotationRenderLayer<TBase extends {
         const pickIdCount = pickIds.reduce((a, b) => a + b, 0);
 
         //if (pickedOffset < ids.length * pickIdsPerInstance) {
-        if (pickedOffset < pickIdCount) {
+        if (pickIdCount != 0 && pickedOffset <= pickIdCount) {
           //const instanceIndex = Math.floor(pickedOffset / pickIdsPerInstance);
           let instanceIndex = 0;
           let pickIdSum = 0;
@@ -448,7 +449,7 @@ function AnnotationRenderLayer<TBase extends {
           for (let i = 0; i < pickIds.length; ++i) {
             pickIdSum += pickIds[i];
 
-            if (pickIdSum > pickedOffset) {
+            if (pickIdSum >= pickedOffset) {
               partIndex = pickIds[i] - (pickIdSum - pickedOffset); // Bin size minus remainder (effectively modulo).
               break;
             }
@@ -470,6 +471,9 @@ function AnnotationRenderLayer<TBase extends {
           mouseState.pickedAnnotationBuffer = chunk.data!.buffer;
           //mouseState.pickedAnnotationBufferOffset = chunk.data!.byteOffset + typeToOffset[annotationType] + instanceIndex * handler.bytes(annotation!);
           mouseState.pickedAnnotationBufferOffset = bufferOffset;
+
+          console.log(["pickedOffset", pickedOffset, "partIndex", partIndex, "bufferOffset", bufferOffset, id]);
+
           handler.snapPosition(
               mouseState.position, this.base.state.objectToGlobal, mouseState.pickedAnnotationBuffer,
               mouseState.pickedAnnotationBufferOffset,

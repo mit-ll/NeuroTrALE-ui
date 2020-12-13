@@ -557,6 +557,69 @@ export abstract class RenderedDataPanel extends RenderedPanel {
       }
     });
 
+    registerActionListener(element, 'create-annotation-point', (e: ActionEvent<MouseEvent>) => {
+      console.log("creating annotation point");
+
+      const {mouseState} = this.viewer;
+      const selectedAnnotationId = mouseState.pickedAnnotationId;
+      const annotationLayer = mouseState.pickedAnnotationLayer;
+      if (annotationLayer !== undefined) {
+        if (selectedAnnotationId !== undefined) {
+          e.stopPropagation();
+          let annotationRef = annotationLayer.source.getReference(selectedAnnotationId)!;
+          let ann = <Annotation>annotationRef.value;
+
+          const handler = getAnnotationTypeRenderHandler(ann.type);
+          const pickedOffset = mouseState.pickedOffset;
+          let repPoint = handler.getRepresentativePoint(
+              annotationLayer.objectToGlobal, ann, mouseState.pickedOffset);
+
+          console.log(repPoint);
+
+          let totDeltaVec = vec2.set(vec2.create(), 0, 0);
+          if (mouseState.updateUnconditionally()) {
+            startRelativeMouseDrag(
+                e.detail,
+                (_event, deltaX, deltaY) => {
+                  vec2.add(totDeltaVec, totDeltaVec, [deltaX, deltaY]);
+                  let newRepPt = this.translateDataPointByViewportPixels(
+                      vec3.create(), repPoint, totDeltaVec[0], totDeltaVec[1]);
+                  let newAnnotation = handler.updateViaRepresentativePoint(
+                      ann, newRepPt, annotationLayer.globalToObject, pickedOffset);
+                  annotationLayer.source.update(annotationRef, newAnnotation);
+                },
+                (_event) => {
+                  annotationRef.dispose();
+                });
+          }
+        }
+      }
+    });
+
+    registerActionListener(element, 'delete-annotation-point', (e: ActionEvent<MouseEvent>) => {
+      console.log("deleting annotation point");
+
+      const {mouseState} = this.viewer;
+      const selectedAnnotationId = mouseState.pickedAnnotationId;
+      const annotationLayer = mouseState.pickedAnnotationLayer;
+      if (annotationLayer !== undefined) {
+        if (selectedAnnotationId !== undefined) {
+          e.stopPropagation();
+          let annotationRef = annotationLayer.source.getReference(selectedAnnotationId)!;
+          let ann = <Annotation>annotationRef.value;
+
+          const handler = getAnnotationTypeRenderHandler(ann.type);
+          if (!handler.deletePoint) { // TODO Maybe implement this abstractly at the base class?
+            return;
+          }
+
+          const pickedOffset = mouseState.pickedOffset;
+          let newAnnotation = handler.deletePoint(ann, pickedOffset);
+          annotationLayer.source.update(annotationRef, newAnnotation);          
+        }
+      }
+    }); 
+
     registerActionListener(element, 'delete-annotation', () => {
       const {mouseState} = this.viewer;
       const selectedAnnotationId = mouseState.pickedAnnotationId;

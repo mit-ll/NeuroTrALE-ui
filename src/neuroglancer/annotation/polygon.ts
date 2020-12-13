@@ -134,21 +134,21 @@ emitAnnotation(getCircleColor(vColor, borderColor));
   drawEndpoints(context: AnnotationRenderContext) {
     const shader = this.endpointShaderGetter(context.renderContext.emitter);
     this.enable(shader, context, () => {
-      const pointCount = context.byteCount.reduce((a, b) => a + b, 0) / (4 * 3);
+      const pointCount = context.byteCount.reduce((a, b) => a + b, 0) / (4 * 3 * 2);
       const aEndpointIndex = shader.attribute('aEndpointIndex');
       this.endpointIndexBuffer.bindToVertexAttribI(
           aEndpointIndex, /*components=*/ 1,
           /*attributeType=*/ WebGL2RenderingContext.UNSIGNED_BYTE);
       this.circleShader.draw(
           shader, context.renderContext,
-          {interiorRadiusInPixels: 6, borderWidthInPixels: 2, featherWidthInPixels: 1},
-          Math.floor(pointCount / 2));
+          {interiorRadiusInPixels: 15, borderWidthInPixels: 2, featherWidthInPixels: 1},
+          pointCount);
       shader.gl.disableVertexAttribArray(aEndpointIndex);
     });
   }
 
   draw(context: AnnotationRenderContext) {
-    this.drawEdges(context);
+    //this.drawEdges(context);
     this.drawEndpoints(context);
   }
 }
@@ -207,7 +207,7 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
 
     return pickIdCounts;
   },
-  getPickIdCount: (annotation) => annotation == null ? 1 : annotation.points.length, // TODO No code provides the annotation.
+  getPickIdCount: (annotation) => annotation == null ? 4 : annotation.points.length, // TODO No code provides the annotation.
   snapPosition: (position, objectToData, data, offset, partIndex) => {
     const endpoints = new Float32Array(data, offset, 3 * partIndex);
     //if (partIndex === FULL_OBJECT_PICK_OFFSET) {
@@ -225,7 +225,7 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
       //if ((partIndex - ENDPOINTS_PICK_OFFSET) === 0) {
       //  vec3.transformMat4(repPoint, ann.points[partIndex], objectToData);
       //} else {
-        vec3.transformMat4(repPoint, ann.points[partIndex - 1], objectToData);
+        vec3.transformMat4(repPoint, ann.points[partIndex % ann.points.length], objectToData);
       //}
     //}
     return repPoint;
@@ -234,7 +234,44 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
     let newPt = vec3.transformMat4(vec3.create(), position, dataToObject);
     let basePolygon = {...oldAnnotation};
 
-    basePolygon.points[partIndex - 1] = newPt;
+    let pointOffset = vec3.subtract(vec3.create(), newPt, basePolygon.points[partIndex % basePolygon.points.length]);
+    let intermediatePointPullCount = 0; // Number of points on either side of the pulled point.
+    let totalPointPullCount = intermediatePointPullCount * 2 + 1;
+    let index = ((partIndex - intermediatePointPullCount) + basePolygon.points.length) % basePolygon.points.length;
+
+    console.log([basePolygon.points.length, pointOffset, index, partIndex]);
+    
+    while (totalPointPullCount) {
+      basePolygon.points[index] = vec3.add(vec3.create(), basePolygon.points[index], pointOffset);
+      console.log(["moved", index]);
+
+      index = (index + 1) % basePolygon.points.length;
+      --totalPointPullCount;
+    }
+
+    // Determine anchor points on either side of pulled point.
+    // Highlight all edges that will be pulled/modified?
+
+    // Smoothing workflow:
+    // Calculate distance between each anchor point and the pulled point (walk each segment).
+
+    // Calculate "percent along" of each intermediate point.
+
+    // Move new point.
+
+    // Create straight line between each anchor point and the pulled point.
+
+    // Project each intermediate point onto the new line, the appropriate percentage in.
+
+    // Calculate difference between original location and new location of intermediate points?
+    // Place intermediate points at midpoint between original and newly-projected location?
+
+    // Rigid workflow:
+    // Calculate offset between pulled point's original and new locations.
+    // Apply offset to all intermediate points.
+
+
+    //basePolygon.points[partIndex - 1] = newPt;
 
     /*
     switch (partIndex) {
@@ -253,6 +290,11 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
     }
     */
 
+    return basePolygon;
+  },
+  deletePoint: (oldAnnotation, partIndex) => {
+    let basePolygon = {...oldAnnotation};
+    basePolygon.points.splice((partIndex - 1 + basePolygon.points.length) % basePolygon.points.length, 1);
     return basePolygon;
   }
 });

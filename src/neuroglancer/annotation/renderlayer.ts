@@ -366,8 +366,9 @@ function AnnotationRenderLayer<TBase extends {
                 selectedIndex += pickIds[i];
               }
 
+              // TODO Adding this properly highlights dynamic geometry (polygons, linestrings) but breaks it for static (points, lines).
               // If we wanted to include the partIndex, we would add:
-              // selectedIndex += hoverValue.partIndex;
+              selectedIndex += hoverValue.partIndex;
             }
           }
           const context: AnnotationRenderContext = {
@@ -440,16 +441,14 @@ function AnnotationRenderLayer<TBase extends {
         let pickIds = handler.pickIdsPerInstance(annotations);
         const pickIdCount = pickIds.reduce((a, b) => a + b, 0);
 
-        //if (pickedOffset < ids.length * pickIdsPerInstance) {
-        if (pickIdCount != 0 && pickedOffset <= pickIdCount) {
-          //const instanceIndex = Math.floor(pickedOffset / pickIdsPerInstance);
+        if (pickIdCount != 0 && pickedOffset < pickIdCount) {
           let instanceIndex = 0;
           let pickIdSum = 0;
           let partIndex = 0;
           for (let i = 0; i < pickIds.length; ++i) {
             pickIdSum += pickIds[i];
 
-            if (pickIdSum >= pickedOffset) {
+            if (pickIdSum > pickedOffset) {
               partIndex = pickIds[i] - (pickIdSum - pickedOffset); // Bin size minus remainder (effectively modulo).
               break;
             }
@@ -471,8 +470,6 @@ function AnnotationRenderLayer<TBase extends {
           mouseState.pickedAnnotationBuffer = chunk.data!.buffer;
           //mouseState.pickedAnnotationBufferOffset = chunk.data!.byteOffset + typeToOffset[annotationType] + instanceIndex * handler.bytes(annotation!);
           mouseState.pickedAnnotationBufferOffset = bufferOffset;
-
-          console.log(["pickedOffset", pickedOffset, "partIndex", partIndex, "bufferOffset", bufferOffset, id]);
 
           handler.snapPosition(
               mouseState.position, this.base.state.objectToGlobal, mouseState.pickedAnnotationBuffer,

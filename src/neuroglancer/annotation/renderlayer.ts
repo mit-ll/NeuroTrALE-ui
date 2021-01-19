@@ -366,8 +366,9 @@ function AnnotationRenderLayer<TBase extends {
                 selectedIndex += pickIds[i];
               }
 
+              // TODO Adding this properly highlights dynamic geometry (polygons, linestrings) but breaks it for static (points, lines).
               // If we wanted to include the partIndex, we would add:
-              // selectedIndex += hoverValue.partIndex;
+              selectedIndex += hoverValue.partIndex;
             }
           }
           const context: AnnotationRenderContext = {
@@ -428,6 +429,7 @@ function AnnotationRenderLayer<TBase extends {
         mouseState: MouseSelectionState, _pickedValue: Uint64, pickedOffset: number, data: any) {
       const chunk = <AnnotationGeometryDataInterface>data;
       const typeToIds = chunk.typeToIds!;
+      //console.log(pickedOffset);
       //const typeToOffset = chunk.typeToOffset!;
       for (const annotationType of annotationTypes) {
         const ids = typeToIds[annotationType];
@@ -439,9 +441,7 @@ function AnnotationRenderLayer<TBase extends {
         let pickIds = handler.pickIdsPerInstance(annotations);
         const pickIdCount = pickIds.reduce((a, b) => a + b, 0);
 
-        //if (pickedOffset < ids.length * pickIdsPerInstance) {
-        if (pickedOffset < pickIdCount) {
-          //const instanceIndex = Math.floor(pickedOffset / pickIdsPerInstance);
+        if (pickIdCount != 0 && pickedOffset < pickIdCount) {
           let instanceIndex = 0;
           let pickIdSum = 0;
           let partIndex = 0;
@@ -470,6 +470,7 @@ function AnnotationRenderLayer<TBase extends {
           mouseState.pickedAnnotationBuffer = chunk.data!.buffer;
           //mouseState.pickedAnnotationBufferOffset = chunk.data!.byteOffset + typeToOffset[annotationType] + instanceIndex * handler.bytes(annotation!);
           mouseState.pickedAnnotationBufferOffset = bufferOffset;
+
           handler.snapPosition(
               mouseState.position, this.base.state.objectToGlobal, mouseState.pickedAnnotationBuffer,
               mouseState.pickedAnnotationBufferOffset,

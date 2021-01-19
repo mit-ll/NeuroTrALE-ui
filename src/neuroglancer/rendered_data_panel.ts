@@ -557,6 +557,50 @@ export abstract class RenderedDataPanel extends RenderedPanel {
       }
     });
 
+    registerActionListener(element, 'create-annotation-point', (e: ActionEvent<MouseEvent>) => {
+      const {mouseState} = this.viewer;
+      const selectedAnnotationId = mouseState.pickedAnnotationId;
+      const annotationLayer = mouseState.pickedAnnotationLayer;
+      if (annotationLayer !== undefined) {
+        if (selectedAnnotationId !== undefined) {
+          e.stopPropagation();
+          let annotationRef = annotationLayer.source.getReference(selectedAnnotationId)!;
+          let ann = <Annotation>annotationRef.value;
+
+          const handler = getAnnotationTypeRenderHandler(ann.type);
+          if (!handler.subdivideEdge) { // TODO Maybe implement this abstractly at the base class?
+            return;
+          }
+
+          const pickedOffset = mouseState.pickedOffset;
+          let newAnnotation = handler.subdivideEdge(ann, pickedOffset);
+          annotationLayer.source.update(annotationRef, newAnnotation);
+        }
+      }
+    });
+
+    registerActionListener(element, 'delete-annotation-point', (e: ActionEvent<MouseEvent>) => {
+      const {mouseState} = this.viewer;
+      const selectedAnnotationId = mouseState.pickedAnnotationId;
+      const annotationLayer = mouseState.pickedAnnotationLayer;
+      if (annotationLayer !== undefined) {
+        if (selectedAnnotationId !== undefined) {
+          e.stopPropagation();
+          let annotationRef = annotationLayer.source.getReference(selectedAnnotationId)!;
+          let ann = <Annotation>annotationRef.value;
+
+          const handler = getAnnotationTypeRenderHandler(ann.type);
+          if (!handler.deletePoint) { // TODO Maybe implement this abstractly at the base class?
+            return;
+          }
+
+          const pickedOffset = mouseState.pickedOffset;
+          let newAnnotation = handler.deletePoint(ann, pickedOffset);
+          annotationLayer.source.update(annotationRef, newAnnotation);          
+        }
+      }
+    }); 
+
     registerActionListener(element, 'delete-annotation', () => {
       const {mouseState} = this.viewer;
       const selectedAnnotationId = mouseState.pickedAnnotationId;

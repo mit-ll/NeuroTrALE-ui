@@ -39,10 +39,10 @@ function getEndpointIndexArray() {
 
 class RenderHelper extends AnnotationRenderHelper {
   private lineShader = this.registerDisposer(new LineShader(this.gl, 1));
-  private circleShader = this.registerDisposer(new CircleShader(this.gl, 2));
+  private circleShader = this.registerDisposer(new CircleShader(this.gl));
 
   defineShader(builder: ShaderBuilder) {
-    super.defineShader(builder);
+    super.defineShader(builder, true);
     // Position of endpoints in camera coordinates.
     builder.addAttribute('highp vec3', 'aEndpointA');
     builder.addAttribute('highp vec3', 'aEndpointB');
@@ -52,6 +52,7 @@ class RenderHelper extends AnnotationRenderHelper {
       emitterDependentShaderGetter(this, this.gl, (builder: ShaderBuilder) => {
         this.defineShader(builder);
         this.lineShader.defineShader(builder);
+        builder.addUniform("highp uint", "uInstancedBasePickOffset")
         builder.setVertexMain(`
 emitLine(uProjection, aEndpointA, aEndpointB);
 ${this.setPartIndex(builder)};
@@ -71,11 +72,12 @@ emitAnnotation(vec4(vColor.rgb, vColor.a * getLineAlpha() * ${this.getCrossSecti
       emitterDependentShaderGetter(this, this.gl, (builder: ShaderBuilder) => {
         this.defineShader(builder);
         this.circleShader.defineShader(builder, this.targetIsSliceView);
+        builder.addUniform("highp uint", "uInstancedBasePickOffset")
         builder.addAttribute('highp uint', 'aEndpointIndex');
         builder.setVertexMain(`
 vec3 vertexPosition = mix(aEndpointA, aEndpointB, float(aEndpointIndex));
 emitCircle(uProjection * vec4(vertexPosition, 1.0));
-${this.setPartIndex(builder, 'aEndpointIndex + 1u')};
+${this.setPartIndex(builder)};
 `);
         builder.setFragmentMain(`
 vec4 borderColor = vec4(0.0, 0.0, 0.0, 1.0);
@@ -111,44 +113,80 @@ emitAnnotation(getCircleColor(vColor, borderColor));
   drawEdges(context: AnnotationRenderContext) {
     const shader = this.edgeShaderGetter(context.renderContext.emitter);
 
-    const pointCount = context.byteCount.reduce((a, b) => a + b, 0) / (4 * 3);
-    this.enable(shader, context, () => {
-      this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 4, 1.0, Math.floor(pointCount / 2));  
-    });
+    //const pointCount = context.byteCount.reduce((a, b) => a + b, 0) / (4 * 3);
+    //this.enable(shader, context, () => {
+    //  this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 8, 1.0, Math.floor(pointCount / 2));  
+    //});
 
-
-    // TODO This rendering works but splits the lines up into separate passes.
-    //let byteOffset = 0;
+    let byteOffset = 0;
+    let renderedEdges = 0;
+    let renderedPoints = 0;
     
-    // for (let i = 0; i < context.byteCount.length; ++i) {
-    //   context.bufferOffset += byteOffset;
-    //   byteOffset = context.byteCount[i];
+    for (let i = 0; i < context.byteCount.length; ++i) {
+      context.bufferOffset += byteOffset;
+      byteOffset = context.byteCount[i];
 
-    //   this.enable(shader, context, () => {          
-    //     let pointCount = context.byteCount[i] / (4 * 3);
-    //     this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 7, 1.0, Math.floor(pointCount / 2));
-    //   });
-    // }
+      let pointCount = context.byteCount[i] / (4 * 3 * 2);
+      this.enable(shader, context, () => {
+        const {gl} = shader;
+        gl.uniform1ui(shader.uniform('uInstancedBasePickOffset'), renderedEdges + renderedPoints);        
+        this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 7, 1.0, pointCount);
+      });
+
+      renderedPoints += pointCount;
+      renderedEdges += pointCount;
+    }
   }
 
   drawEndpoints(context: AnnotationRenderContext) {
     const shader = this.endpointShaderGetter(context.renderContext.emitter);
-    this.enable(shader, context, () => {
-      const pointCount = context.byteCount.reduce((a, b) => a + b, 0) / (4 * 3);
-      const aEndpointIndex = shader.attribute('aEndpointIndex');
-      this.endpointIndexBuffer.bindToVertexAttribI(
-          aEndpointIndex, /*components=*/ 1,
-          /*attributeType=*/ WebGL2RenderingContext.UNSIGNED_BYTE);
-      this.circleShader.draw(
-          shader, context.renderContext,
-          {interiorRadiusInPixels: 6, borderWidthInPixels: 2, featherWidthInPixels: 1},
-          Math.floor(pointCount / 2));
-      shader.gl.disableVertexAttribArray(aEndpointIndex);
-    });
+
+    //this.enable(shader, context, () => {
+    //  const pointCount = context.byteCount.reduce((a, b) => a + b, 0) / (4 * 3 * 2);
+    //  const aEndpointIndex = shader.attribute('aEndpointIndex');
+    //  this.endpointIndexBuffer.bindToVertexAttribI(
+    //      aEndpointIndex, /*components=*/ 1,
+    //      /*attributeType=*/ WebGL2RenderingContext.UNSIGNED_BYTE);
+    //  this.circleShader.draw(
+    //      shader, context.renderContext,
+    //      {interiorRadiusInPixels: 15, borderWidthInPixels: 2, featherWidthInPixels: 1},
+    //      pointCount);
+    //  shader.gl.disableVertexAttribArray(aEndpointIndex);
+    //});
+
+    let byteOffset = 0;
+    let renderedPoints = 0;
+    let renderedEdges = 0;
+    
+    for (let i = 0; i < context.byteCount.length; ++i) {
+      context.bufferOffset += byteOffset;
+      byteOffset = context.byteCount[i];
+
+      let pointCount = context.byteCount[i] / (4 * 3 * 2);
+      renderedEdges += pointCount;
+      this.enable(shader, context, () => {
+        const {gl} = shader;
+        gl.uniform1ui(shader.uniform('uInstancedBasePickOffset'), renderedPoints + renderedEdges);        
+        const aEndpointIndex = shader.attribute('aEndpointIndex');
+        this.endpointIndexBuffer.bindToVertexAttribI(
+            aEndpointIndex, /*components=*/ 1,
+            /*attributeType=*/ WebGL2RenderingContext.UNSIGNED_BYTE);
+        this.circleShader.draw(
+            shader, context.renderContext,
+            {interiorRadiusInPixels: 15, borderWidthInPixels: 2, featherWidthInPixels: 1},
+            pointCount);
+        shader.gl.disableVertexAttribArray(aEndpointIndex);
+      });
+
+      renderedPoints += pointCount;
+    }
   }
 
   draw(context: AnnotationRenderContext) {
+    let startingBufferOffset = context.bufferOffset;
     this.drawEdges(context);
+
+    context.bufferOffset = startingBufferOffset;
     this.drawEndpoints(context);
   }
 }
@@ -202,7 +240,7 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
   pickIdsPerInstance: (annotations) => {
     let pickIdCounts = [];
     for (let i = 0; i < annotations.length; ++i) {
-      pickIdCounts.push(annotations[i].points.length);
+      pickIdCounts.push(annotations[i].points.length * 2); // One per point and one per edge.
     }
 
     return pickIdCounts;
@@ -225,7 +263,7 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
       //if ((partIndex - ENDPOINTS_PICK_OFFSET) === 0) {
       //  vec3.transformMat4(repPoint, ann.points[partIndex], objectToData);
       //} else {
-        vec3.transformMat4(repPoint, ann.points[partIndex - 1], objectToData);
+        vec3.transformMat4(repPoint, ann.points[partIndex % ann.points.length], objectToData);
       //}
     //}
     return repPoint;
@@ -233,26 +271,50 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
   updateViaRepresentativePoint: (oldAnnotation, position, dataToObject, partIndex) => {
     let newPt = vec3.transformMat4(vec3.create(), position, dataToObject);
     let basePolygon = {...oldAnnotation};
+    let pointOffset = vec3.subtract(vec3.create(), newPt, basePolygon.points[partIndex % basePolygon.points.length]);
 
-    basePolygon.points[partIndex - 1] = newPt;
+    if (partIndex < basePolygon.points.length) { // Moving an edge.
+      let lowerIndex = (partIndex + basePolygon.points.length) % basePolygon.points.length;
+      let upperIndex = ((partIndex + 1) + basePolygon.points.length) % basePolygon.points.length;
 
-    /*
-    switch (partIndex) {
-      case FULL_OBJECT_PICK_OFFSET:
-        let delta = vec3.sub(vec3.create(), oldAnnotation.points[0], oldAnnotation.points[0]);
-        baseLine.points[0] = newPt;
-        baseLine.points[0] = vec3.add(vec3.create(), newPt, delta);
-        break;
-      case FULL_OBJECT_PICK_OFFSET + 1:
-        baseLine.points[0] = newPt;
-        baseLine.points[0] = oldAnnotation.points[0];
-        break;
-      case FULL_OBJECT_PICK_OFFSET + 2:
-        baseLine.points[0] = oldAnnotation.points[0];
-        baseLine.points[0] = newPt;
+      basePolygon.points[lowerIndex] = vec3.add(vec3.create(), basePolygon.points[lowerIndex], pointOffset);
+      basePolygon.points[upperIndex] = vec3.add(vec3.create(), basePolygon.points[upperIndex], pointOffset);
     }
-    */
+    else { // Moving a point.
+      let intermediatePointPullCount = 0; // Number of points on either side of the pulled point.
+      let totalPointPullCount = intermediatePointPullCount * 2 + 1;
+      let index = ((partIndex - intermediatePointPullCount) + basePolygon.points.length) % basePolygon.points.length;
+      
+      while (totalPointPullCount) {
+        basePolygon.points[index] = vec3.add(vec3.create(), basePolygon.points[index], pointOffset);
 
+        index = (index + 1) % basePolygon.points.length;
+        --totalPointPullCount;
+      }
+    }
+
+    return basePolygon;
+  },
+  deletePoint: (oldAnnotation, partIndex) => {
+    let basePolygon = {...oldAnnotation};
+    if (partIndex < basePolygon.points.length) { // Deleting an edge.
+      return basePolygon;
+    }
+
+    basePolygon.points.splice((partIndex + basePolygon.points.length) % basePolygon.points.length, 1);
+    return basePolygon;
+  },
+  subdivideEdge: (oldAnnotation, partIndex) => {
+    let basePolygon = {...oldAnnotation};
+    if (partIndex >= basePolygon.points.length) { // The user performed the subdivide action on a point, not an edge.
+      return basePolygon;
+    }
+
+    let lowerPoint = basePolygon.points[(partIndex + basePolygon.points.length) % basePolygon.points.length];
+    let upperPoint = basePolygon.points[(partIndex + 1 + basePolygon.points.length) % basePolygon.points.length];
+    let midPoint = vec3.add(vec3.create(), vec3.div(vec3.create(), vec3.sub(vec3.create(), upperPoint, lowerPoint), vec3.fromValues(2, 2, 2)), lowerPoint);
+
+    basePolygon.points.splice((partIndex + 1 + basePolygon.points.length) % basePolygon.points.length, 0, midPoint);
     return basePolygon;
   }
 });

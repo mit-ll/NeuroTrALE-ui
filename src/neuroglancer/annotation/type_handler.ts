@@ -172,7 +172,7 @@ interface AnnotationTypeRenderHandler<T extends Annotation> {
       (position: vec3, objectToData: mat4, data: ArrayBuffer, offset: number,
        partIndex: number) => void;
   deletePoint?: (oldAnnotation: T, partIndex: number) => T;
-  addPoint?: (oldAnnotation: T, position: vec3) => T;
+  subdivideEdge?: (oldAnnotation: T, partIndex: number) => T;
 }
 
 const annotationTypeRenderHandlers =

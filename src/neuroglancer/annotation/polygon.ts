@@ -284,58 +284,14 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
       let intermediatePointPullCount = 0; // Number of points on either side of the pulled point.
       let totalPointPullCount = intermediatePointPullCount * 2 + 1;
       let index = ((partIndex - intermediatePointPullCount) + basePolygon.points.length) % basePolygon.points.length;
-
-      //console.log([basePolygon.points.length, pointOffset, index, partIndex]);
       
       while (totalPointPullCount) {
         basePolygon.points[index] = vec3.add(vec3.create(), basePolygon.points[index], pointOffset);
-        //console.log(["moved", index]);
 
         index = (index + 1) % basePolygon.points.length;
         --totalPointPullCount;
       }
     }
-
-    // Determine anchor points on either side of pulled point.
-    // Highlight all edges that will be pulled/modified?
-
-    // Smoothing workflow:
-    // Calculate distance between each anchor point and the pulled point (walk each segment).
-
-    // Calculate "percent along" of each intermediate point.
-
-    // Move new point.
-
-    // Create straight line between each anchor point and the pulled point.
-
-    // Project each intermediate point onto the new line, the appropriate percentage in.
-
-    // Calculate difference between original location and new location of intermediate points?
-    // Place intermediate points at midpoint between original and newly-projected location?
-
-    // Rigid workflow:
-    // Calculate offset between pulled point's original and new locations.
-    // Apply offset to all intermediate points.
-
-
-    //basePolygon.points[partIndex - 1] = newPt;
-
-    /*
-    switch (partIndex) {
-      case FULL_OBJECT_PICK_OFFSET:
-        let delta = vec3.sub(vec3.create(), oldAnnotation.points[0], oldAnnotation.points[0]);
-        baseLine.points[0] = newPt;
-        baseLine.points[0] = vec3.add(vec3.create(), newPt, delta);
-        break;
-      case FULL_OBJECT_PICK_OFFSET + 1:
-        baseLine.points[0] = newPt;
-        baseLine.points[0] = oldAnnotation.points[0];
-        break;
-      case FULL_OBJECT_PICK_OFFSET + 2:
-        baseLine.points[0] = oldAnnotation.points[0];
-        baseLine.points[0] = newPt;
-    }
-    */
 
     return basePolygon;
   },
@@ -346,6 +302,19 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
     }
 
     basePolygon.points.splice((partIndex + basePolygon.points.length) % basePolygon.points.length, 1);
+    return basePolygon;
+  },
+  subdivideEdge: (oldAnnotation, partIndex) => {
+    let basePolygon = {...oldAnnotation};
+    if (partIndex >= basePolygon.points.length) { // The user performed the subdivide action on a point, not an edge.
+      return basePolygon;
+    }
+
+    let lowerPoint = basePolygon.points[(partIndex + basePolygon.points.length) % basePolygon.points.length];
+    let upperPoint = basePolygon.points[(partIndex + 1 + basePolygon.points.length) % basePolygon.points.length];
+    let midPoint = vec3.add(vec3.create(), vec3.div(vec3.create(), vec3.sub(vec3.create(), upperPoint, lowerPoint), vec3.fromValues(2, 2, 2)), lowerPoint);
+
+    basePolygon.points.splice((partIndex + 1 + basePolygon.points.length) % basePolygon.points.length, 0, midPoint);
     return basePolygon;
   }
 });

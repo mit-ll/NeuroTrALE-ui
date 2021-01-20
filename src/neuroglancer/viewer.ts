@@ -507,6 +507,13 @@ export class Viewer extends RefCounted implements ViewerState {
     const treeInfoPanel = new TreeInfoPanelContainer();
     this.annotationTreeView = treeInfoPanel;
 
+    // TODO Load this from the jstree CSS file.
+    let styles = `.jstree a { color: white !important; }`;
+    let styleSheet = document.createElement("style");
+    styleSheet.type = "text/css";
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+
     layoutAndSidePanel.appendChild(treeInfoPanel.element);
     gridContainer.appendChild(layoutAndSidePanel);
 

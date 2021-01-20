@@ -27,6 +27,8 @@
   },
   "devDependencies": {
     "@types/jasmine": "^3.3.12",
+    "@types/jquery": "^3.5.4",
+    "@types/jstree": "^3.3.40",
     "benchmark": "^2.1.4",
     "clang-format": "^1.2.4",
     "copy-webpack-plugin": "^5.0.2",
@@ -68,6 +70,8 @@
     "glsl-editor": "^1.0.0",
     "glsl-strip-comments-loader": "^1.1.0",
     "html-webpack-plugin": "^3.2.0",
+    "jquery": "^3.5.1",
+    "jstree": "^3.3.10",
     "lodash": "^4.17.11",
     "nifti-reader-js": "^0.5.4",
     "pako": "^1.0.10",

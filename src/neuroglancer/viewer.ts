@@ -58,6 +58,7 @@ import {makeTextIconButton} from 'neuroglancer/widget/text_icon_button';
 import {RPC} from 'neuroglancer/worker_rpc';
 import { AnnotationUserLayer } from './annotation/user_layer';
 import { TwoStepAnnotationTool } from 'neuroglancer/ui/annotations.ts';
+import { TreeInfoPanelContainer } from 'neuroglancer/dir_tree/tree_layer';
 
 declare var NEUROGLANCER_OVERRIDE_DEFAULT_VIEWER_OPTIONS: any
 
@@ -208,6 +209,7 @@ export class Viewer extends RefCounted implements ViewerState {
   abortControllerContour:AbortController|null = null;
   abortControllerCentroid:AbortController|null = null;
   desiredAnnotationCoordinates:vec3 = vec3.fromValues(0, 0, 0);
+  annotationTreeView:TreeInfoPanelContainer|null = null;
 
   layerSelectedValues =
       this.registerDisposer(new LayerSelectedValues(this.layerManager, this.mouseState));
@@ -502,6 +504,10 @@ export class Viewer extends RefCounted implements ViewerState {
         },
         this.selectedLayer.size, 'horizontal', 290));
 
+    const treeInfoPanel = new TreeInfoPanelContainer();
+    this.annotationTreeView = treeInfoPanel;
+
+    layoutAndSidePanel.appendChild(treeInfoPanel.element);
     gridContainer.appendChild(layoutAndSidePanel);
 
     const statisticsPanel = this.registerDisposer(
@@ -698,6 +704,8 @@ export class Viewer extends RefCounted implements ViewerState {
         this.addContourAnnotationLayers(layer.sourceUrl);
         this.addCentroidAnnotationLayer(layer.sourceUrl);
         this.addAxonAnnotationLayer(layer.sourceUrl);
+
+        this.annotationTreeView!.loadTree("http" + layer.sourceUrl.split("http")[1], this.layerManager, this.navigationState);
       }
     });
   }

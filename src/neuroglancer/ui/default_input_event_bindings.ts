@@ -76,6 +76,8 @@ export function getDefaultRenderedDataPanelBindings() {
           'at:mousedown2': 'move-to-mouse-position',
           'at:control+mousedown2': 'select-annotation',
           'at:alt+mousedown0': 'move-annotation',
+          'at:control+alt+mousedown0': 'create-annotation-point',
+          'at:control+alt+shift+mousedown2': 'delete-annotation-point',
           'at:control+alt+mousedown2': 'delete-annotation',
           'at:touchpinch': 'zoom-via-touchpinch',
           'at:touchrotate': 'rotate-in-plane-via-touchrotate',

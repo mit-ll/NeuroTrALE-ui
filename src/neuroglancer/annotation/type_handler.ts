@@ -19,7 +19,7 @@ import {AnnotationLayer} from 'neuroglancer/annotation/frontend';
 import {PerspectiveViewRenderContext} from 'neuroglancer/perspective_view/render_layer';
 import {SliceViewPanelRenderContext} from 'neuroglancer/sliceview/panel';
 import {RefCounted} from 'neuroglancer/util/disposable';
-import {mat4, vec3} from 'neuroglancer/util/geom';
+import {mat4, vec3, vec4} from 'neuroglancer/util/geom';
 import {Buffer} from 'neuroglancer/webgl/buffer';
 import {GL} from 'neuroglancer/webgl/context';
 import {ShaderBuilder, ShaderProgram} from 'neuroglancer/webgl/shader';
@@ -29,6 +29,7 @@ export interface AnnotationRenderContext {
   annotationLayer: AnnotationLayer;
   renderContext: SliceViewPanelRenderContext|PerspectiveViewRenderContext;
   bufferOffset: number;
+  colorMap: Array<vec4 | null>;
   count: number;
   byteCount: number[];
   basePickId: number;
@@ -85,7 +86,7 @@ if (selectedIndex == pickBaseOffset${
     }
   }
 
-  defineShader(builder: ShaderBuilder) {
+  defineShader(builder: ShaderBuilder, isInstanced: boolean = false) {
     builder.addUniform('highp vec4', 'uColor');
     builder.addUniform('highp vec4', 'uColorSelected');
     builder.addUniform('highp uint', 'uSelectedIndex');
@@ -100,9 +101,19 @@ if (selectedIndex == pickBaseOffset${
 highp uint getPickBaseOffset() { return uint(gl_InstanceID) * ${this.pickIdsPerInstance([]).reduce((a, b) => a + b, 0)}u; }
 `);*/
 
-  builder.addVertexCode(`
-  highp uint getPickBaseOffset() { return uint(gl_InstanceID) * ${this.getPickIdCount(null)}u; }
-  `);
+
+  // For dynamic geometries, e.g. polygons and line strings, the instance ID is used to back out the base pick ID. For
+  // static geometries, e.g. lines, the offset can be pre-calculated based on the number of instances being drawn.
+  if (isInstanced) {
+    builder.addVertexCode(`
+    highp uint getPickBaseOffset() { return uint(gl_InstanceID) + uInstancedBasePickOffset; }
+    `);
+  }
+  else {
+    builder.addVertexCode(`
+    highp uint getPickBaseOffset() { return uint(gl_InstanceID) * ${this.getPickIdCount(null)}u; }
+    `);
+  }
 
     builder.addFragmentCode(`
 void emitAnnotation(vec4 color) {
@@ -161,6 +172,8 @@ interface AnnotationTypeRenderHandler<T extends Annotation> {
   snapPosition:
       (position: vec3, objectToData: mat4, data: ArrayBuffer, offset: number,
        partIndex: number) => void;
+  deletePoint?: (oldAnnotation: T, partIndex: number) => T;
+  subdivideEdge?: (oldAnnotation: T, partIndex: number) => T;
 }
 
 const annotationTypeRenderHandlers =

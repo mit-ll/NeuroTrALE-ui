@@ -37,12 +37,13 @@ import {SliceViewPanelRenderLayer} from 'neuroglancer/sliceview/panel';
 import {WatchableValueInterface} from 'neuroglancer/trackable_value';
 import {binarySearch} from 'neuroglancer/util/array';
 import {Borrowed, Owned, RefCounted} from 'neuroglancer/util/disposable';
-import {mat4} from 'neuroglancer/util/geom';
+import {mat4, vec4} from 'neuroglancer/util/geom';
 import {NullarySignal} from 'neuroglancer/util/signal';
 import {Uint64} from 'neuroglancer/util/uint64';
 import {withSharedVisibility} from 'neuroglancer/visibility_priority/frontend';
 import {Buffer} from 'neuroglancer/webgl/buffer';
 import {registerSharedObjectOwner, SharedObject} from 'neuroglancer/worker_rpc';
+import {annotationColorMap} from 'neuroglancer/dir_tree/tree_layer';
 
 const tempMat = mat4.create();
 
@@ -345,12 +346,15 @@ function AnnotationRenderLayer<TBase extends {
         if (ids.length > 0) {
           const count = ids.length;
           const byteCount: number[] = [];
+          const colors: Array<vec4 | null> = [];
           const handler = getAnnotationTypeRenderHandler(annotationType);
           let selectedIndex = 0xFFFFFFFF;
 
           let annotations: Annotation[] = [];
           ids.forEach((id) => {
             let bytes = handler.bytes(this.base.state.source.getReference(id).value!);
+            let color = annotationColorMap.get(id);
+            colors.push(color ? color : null);
             byteCount.push(bytes);
             annotations.push(this.base.state.source.getReference(id).value!);
           });
@@ -366,8 +370,9 @@ function AnnotationRenderLayer<TBase extends {
                 selectedIndex += pickIds[i];
               }
 
+              // TODO Adding this properly highlights dynamic geometry (polygons, linestrings) but breaks it for static (points, lines).
               // If we wanted to include the partIndex, we would add:
-              // selectedIndex += hoverValue.partIndex;
+              selectedIndex += hoverValue.partIndex;
             }
           }
           const context: AnnotationRenderContext = {
@@ -377,6 +382,7 @@ function AnnotationRenderLayer<TBase extends {
             basePickId: pickId,
             buffer: chunk.buffer!,
             bufferOffset: typeToOffset[annotationType],
+            colorMap: colors,
             count,
             byteCount,
             projectionMatrix,
@@ -428,6 +434,7 @@ function AnnotationRenderLayer<TBase extends {
         mouseState: MouseSelectionState, _pickedValue: Uint64, pickedOffset: number, data: any) {
       const chunk = <AnnotationGeometryDataInterface>data;
       const typeToIds = chunk.typeToIds!;
+      //console.log(pickedOffset);
       //const typeToOffset = chunk.typeToOffset!;
       for (const annotationType of annotationTypes) {
         const ids = typeToIds[annotationType];
@@ -439,9 +446,7 @@ function AnnotationRenderLayer<TBase extends {
         let pickIds = handler.pickIdsPerInstance(annotations);
         const pickIdCount = pickIds.reduce((a, b) => a + b, 0);
 
-        //if (pickedOffset < ids.length * pickIdsPerInstance) {
-        if (pickedOffset < pickIdCount) {
-          //const instanceIndex = Math.floor(pickedOffset / pickIdsPerInstance);
+        if (pickIdCount != 0 && pickedOffset < pickIdCount) {
           let instanceIndex = 0;
           let pickIdSum = 0;
           let partIndex = 0;
@@ -470,6 +475,7 @@ function AnnotationRenderLayer<TBase extends {
           mouseState.pickedAnnotationBuffer = chunk.data!.buffer;
           //mouseState.pickedAnnotationBufferOffset = chunk.data!.byteOffset + typeToOffset[annotationType] + instanceIndex * handler.bytes(annotation!);
           mouseState.pickedAnnotationBufferOffset = bufferOffset;
+
           handler.snapPosition(
               mouseState.position, this.base.state.objectToGlobal, mouseState.pickedAnnotationBuffer,
               mouseState.pickedAnnotationBufferOffset,

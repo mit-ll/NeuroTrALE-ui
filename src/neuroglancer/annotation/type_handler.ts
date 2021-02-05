@@ -19,7 +19,7 @@ import {AnnotationLayer} from 'neuroglancer/annotation/frontend';
 import {PerspectiveViewRenderContext} from 'neuroglancer/perspective_view/render_layer';
 import {SliceViewPanelRenderContext} from 'neuroglancer/sliceview/panel';
 import {RefCounted} from 'neuroglancer/util/disposable';
-import {mat4, vec3} from 'neuroglancer/util/geom';
+import {mat4, vec3, vec4} from 'neuroglancer/util/geom';
 import {Buffer} from 'neuroglancer/webgl/buffer';
 import {GL} from 'neuroglancer/webgl/context';
 import {ShaderBuilder, ShaderProgram} from 'neuroglancer/webgl/shader';
@@ -29,6 +29,7 @@ export interface AnnotationRenderContext {
   annotationLayer: AnnotationLayer;
   renderContext: SliceViewPanelRenderContext|PerspectiveViewRenderContext;
   bufferOffset: number;
+  colorMap: Array<vec4 | null>;
   count: number;
   byteCount: number[];
   basePickId: number;

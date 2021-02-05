@@ -508,7 +508,7 @@ export class Viewer extends RefCounted implements ViewerState {
     this.annotationTreeView = treeInfoPanel;
 
     // TODO Load this from the jstree CSS file.
-    let styles = `.jstree a { color: white !important; }`;
+    let styles = `.jstree a { color: white; font-weight: bold; font-family: Arial, Verdana, sans-serif; font-size: 12px; }`;
     let styleSheet = document.createElement("style");
     styleSheet.type = "text/css";
     styleSheet.innerText = styles;
@@ -1077,7 +1077,7 @@ export class Viewer extends RefCounted implements ViewerState {
         isAnnotationInProgress = true;
       }
     });
-    if (isAnnotationInProgress) {
+    if (isAnnotationInProgress && !this.mouseState.isCompletingSelection) {
       return;
     }
 

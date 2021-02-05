@@ -564,6 +564,7 @@ export class MouseSelectionState implements PickState {
   changed = new NullarySignal();
   position = vec3.create();
   active = false;
+  isCompletingSelection = false;
   pickedRenderLayer: RenderLayer|null = null;
   pickedValue = new Uint64(0, 0);
   pickedOffset = 0;

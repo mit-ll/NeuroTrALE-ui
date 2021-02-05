@@ -23,7 +23,7 @@ import { LayerManager } from "../layer";
 import { Point, Polygon } from '../annotation';
 import { AnnotationUserLayer } from '../annotation/user_layer';
 import { NavigationState } from '../navigation_state';
-import { vec3 } from '../util/geom';
+import { vec3, vec4 } from '../util/geom';
 //import { VoxelSize, SpatialPosition } from '../navigation_state';
 
 
@@ -118,12 +118,16 @@ class DisplayTab extends Tab {
 */
 //registerLayerType('tree', TreeUserLayer);
 
+export const annotationColorMap:Map<string, vec4> = new Map(); // TODO Move this color map to a self-contained class.
+
 export class TreeInfoPanelContainer {
   jstree: Node;
   element: HTMLDivElement;
   layerManager: LayerManager;
   sourceUrl: string = "";
   navigationState: NavigationState;
+  treeData: Array<object>;
+  colorIndex: number = 0;
 
   constructor() {
     let instance = this;
@@ -161,6 +165,24 @@ export class TreeInfoPanelContainer {
       }
     });
 
+    $(this.jstree).on("before_open.jstree", function(_, data) {
+      let children = data.node.children;
+      for (let i = 0; i < children.length; ++i) {
+        let annotationId = children[i];
+        let color = annotationColorMap.get(annotationId);
+        let isAnnotationShowing = false;
+        instance.layerManager.layerSet.forEach(function(layer) {
+          if (layer !== null && layer.layer instanceof AnnotationUserLayer && layer.layer.localAnnotations.get(annotationId) !== undefined) {
+            isAnnotationShowing = true;
+          }
+        });
+
+        if (color) {
+          $(`#${annotationId}_anchor`).css("color", `rgba(${color[0] * 255}, ${color[1] * 255}, ${color[2] * 255}, ${ isAnnotationShowing ? color[3] : color[3] / 4})`);
+        }
+      }
+    });
+
     this.element = div;
     return this;
   }
@@ -171,6 +193,31 @@ export class TreeInfoPanelContainer {
 
   hideTree() {
     this.element.setAttribute("style", "display: none;");
+  }
+
+  constructColorMap() {
+    let colorOptions = [vec4.fromValues(1, 0, 0, 1), // Red.
+      vec4.fromValues(0, 0.5, 1, 1), // Blue.
+      vec4.fromValues(0, 0.9, 0, 1), // Green.
+      vec4.fromValues(0, 1, 1, 1), // Teal.
+      vec4.fromValues(1, 0.7, 0, 1), // Orange.
+      vec4.fromValues(1, 0, 1, 1), // Purple.
+      vec4.fromValues(1, 1, 0, 1)]; // Yellow.
+
+    for (let i = 0; i < this.treeData.length; ++i) {
+      this.addIdsToColorMap(this.treeData[i], colorOptions);
+    }
+  }
+
+  addIdsToColorMap(node: any, colorOptions: any[]) {
+    if (node.id != null && !annotationColorMap.has(node.id)) {
+      annotationColorMap.set(node.id, colorOptions[this.colorIndex % colorOptions.length]);
+      ++this.colorIndex;
+    }
+
+    for (let i = 0; i < node.children.length; ++i) {
+      this.addIdsToColorMap(node.children[i], colorOptions);
+    }
   }
 
   loadTree(sourceUrl: string, layerManager: LayerManager, navigationState: NavigationState) {
@@ -191,6 +238,8 @@ export class TreeInfoPanelContainer {
       }
 
       response.json().then(data => {
+        instance.treeData = data;
+        instance.constructColorMap();
         instance.showTree();
 
         $(instance.jstree).jstree({

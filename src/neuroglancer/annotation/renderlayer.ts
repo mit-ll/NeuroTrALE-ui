@@ -37,12 +37,13 @@ import {SliceViewPanelRenderLayer} from 'neuroglancer/sliceview/panel';
 import {WatchableValueInterface} from 'neuroglancer/trackable_value';
 import {binarySearch} from 'neuroglancer/util/array';
 import {Borrowed, Owned, RefCounted} from 'neuroglancer/util/disposable';
-import {mat4} from 'neuroglancer/util/geom';
+import {mat4, vec4} from 'neuroglancer/util/geom';
 import {NullarySignal} from 'neuroglancer/util/signal';
 import {Uint64} from 'neuroglancer/util/uint64';
 import {withSharedVisibility} from 'neuroglancer/visibility_priority/frontend';
 import {Buffer} from 'neuroglancer/webgl/buffer';
 import {registerSharedObjectOwner, SharedObject} from 'neuroglancer/worker_rpc';
+import {annotationColorMap} from 'neuroglancer/dir_tree/tree_layer';
 
 const tempMat = mat4.create();
 
@@ -345,12 +346,15 @@ function AnnotationRenderLayer<TBase extends {
         if (ids.length > 0) {
           const count = ids.length;
           const byteCount: number[] = [];
+          const colors: Array<vec4 | null> = [];
           const handler = getAnnotationTypeRenderHandler(annotationType);
           let selectedIndex = 0xFFFFFFFF;
 
           let annotations: Annotation[] = [];
           ids.forEach((id) => {
             let bytes = handler.bytes(this.base.state.source.getReference(id).value!);
+            let color = annotationColorMap.get(id);
+            colors.push(color ? color : null);
             byteCount.push(bytes);
             annotations.push(this.base.state.source.getReference(id).value!);
           });
@@ -378,6 +382,7 @@ function AnnotationRenderLayer<TBase extends {
             basePickId: pickId,
             buffer: chunk.buffer!,
             bufferOffset: typeToOffset[annotationType],
+            colorMap: colors,
             count,
             byteCount,
             projectionMatrix,

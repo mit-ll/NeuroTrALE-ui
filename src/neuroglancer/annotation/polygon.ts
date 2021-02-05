@@ -129,7 +129,13 @@ emitAnnotation(getCircleColor(vColor, borderColor));
       let pointCount = context.byteCount[i] / (4 * 3 * 2);
       this.enable(shader, context, () => {
         const {gl} = shader;
-        gl.uniform1ui(shader.uniform('uInstancedBasePickOffset'), renderedEdges + renderedPoints);        
+        gl.uniform1ui(shader.uniform('uInstancedBasePickOffset'), renderedEdges + renderedPoints);
+
+        let replacementColor = context.colorMap[i];
+        if (replacementColor != null) {
+          gl.uniform4fv(shader.uniform('uColor'), replacementColor);
+        }
+
         this.lineShader.draw(shader, context.renderContext, /*lineWidth=*/ 7, 1.0, pointCount);
       });
 
@@ -168,12 +174,18 @@ emitAnnotation(getCircleColor(vColor, borderColor));
         const {gl} = shader;
         gl.uniform1ui(shader.uniform('uInstancedBasePickOffset'), renderedPoints + renderedEdges);        
         const aEndpointIndex = shader.attribute('aEndpointIndex');
+
+        let replacementColor = context.colorMap[i];
+        if (replacementColor != null) {
+          gl.uniform4fv(shader.uniform('uColor'), replacementColor);
+        }
+
         this.endpointIndexBuffer.bindToVertexAttribI(
             aEndpointIndex, /*components=*/ 1,
             /*attributeType=*/ WebGL2RenderingContext.UNSIGNED_BYTE);
         this.circleShader.draw(
             shader, context.renderContext,
-            {interiorRadiusInPixels: 15, borderWidthInPixels: 2, featherWidthInPixels: 1},
+            {interiorRadiusInPixels: 12, borderWidthInPixels: 2, featherWidthInPixels: 1},
             pointCount);
         shader.gl.disableVertexAttribArray(aEndpointIndex);
       });

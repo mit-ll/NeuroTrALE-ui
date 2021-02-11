@@ -185,7 +185,7 @@ emitAnnotation(getCircleColor(vColor, borderColor));
             /*attributeType=*/ WebGL2RenderingContext.UNSIGNED_BYTE);
         this.circleShader.draw(
             shader, context.renderContext,
-            {interiorRadiusInPixels: 12, borderWidthInPixels: 2, featherWidthInPixels: 1},
+            {interiorRadiusInPixels: 12, borderWidthInPixels: 0, featherWidthInPixels: 1},
             pointCount);
         shader.gl.disableVertexAttribArray(aEndpointIndex);
       });

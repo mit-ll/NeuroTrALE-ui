@@ -131,9 +131,11 @@ export class TreeInfoPanelContainer {
 
   constructor() {
     let instance = this;
+    let divWrapper = document.createElement("div");
     let div = document.createElement('div');
     this.jstree = document.createElement('div');
     div.appendChild(this.jstree);
+    divWrapper.appendChild(div);
     
     $(this.jstree).on('select_node.jstree', function(_: any, data: any) {
       //console.log(data.node.original.id);
@@ -183,12 +185,14 @@ export class TreeInfoPanelContainer {
       }
     });
 
-    this.element = div;
+    div.setAttribute("style", "position: absolute;");
+
+    this.element = divWrapper;
     return this;
   }
 
   showTree() {
-    this.element.setAttribute("style", "overflow: auto; min-width: 300px; border-left: 1px solid #222222;");
+    this.element.setAttribute("style", "position: relative; overflow: auto; height: 100%; min-width: 300px; border-right: 1px solid #222222; margin-right: 5px;");
   }
 
   hideTree() {
@@ -244,7 +248,8 @@ export class TreeInfoPanelContainer {
 
         $(instance.jstree).jstree({
           'core': {
-            'data': data
+            'data': data,
+            'worker': false
           }
         });
       });

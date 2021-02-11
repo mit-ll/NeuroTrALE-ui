@@ -486,6 +486,19 @@ export class Viewer extends RefCounted implements ViewerState {
     layoutAndSidePanel.style.display = 'flex';
     layoutAndSidePanel.style.flex = '1';
     layoutAndSidePanel.style.flexDirection = 'row';
+
+    const treeInfoPanel = new TreeInfoPanelContainer();
+    this.annotationTreeView = treeInfoPanel;
+
+    // TODO Load this from the jstree CSS file.
+    let styles = `.jstree a { color: white; font-weight: bold; font-family: Arial, Verdana, sans-serif; font-size: 12px; }`;
+    let styleSheet = document.createElement("style");
+    styleSheet.type = "text/css";
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+
+    layoutAndSidePanel.appendChild(treeInfoPanel.element);
+
     this.layout = this.registerDisposer(new RootLayoutContainer(this, '4panel'));
     layoutAndSidePanel.appendChild(this.layout.element);
     const layerInfoPanel =
@@ -504,17 +517,6 @@ export class Viewer extends RefCounted implements ViewerState {
         },
         this.selectedLayer.size, 'horizontal', 290));
 
-    const treeInfoPanel = new TreeInfoPanelContainer();
-    this.annotationTreeView = treeInfoPanel;
-
-    // TODO Load this from the jstree CSS file.
-    let styles = `.jstree a { color: white; font-weight: bold; font-family: Arial, Verdana, sans-serif; font-size: 12px; }`;
-    let styleSheet = document.createElement("style");
-    styleSheet.type = "text/css";
-    styleSheet.innerText = styles;
-    document.head.appendChild(styleSheet);
-
-    layoutAndSidePanel.appendChild(treeInfoPanel.element);
     gridContainer.appendChild(layoutAndSidePanel);
 
     const statisticsPanel = this.registerDisposer(

@@ -69,6 +69,8 @@ export interface AnnotationBase {
   type: AnnotationType;
   anntype?: string|undefined;
   reviewed?: string|undefined;
+  selected?: boolean[];
+  hasSelection?: boolean;
 
   segments?: Uint64[];
 }

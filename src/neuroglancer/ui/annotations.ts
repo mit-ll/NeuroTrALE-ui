@@ -943,6 +943,14 @@ export abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
       {annotationLayer: AnnotationLayerState, reference: AnnotationReference, disposer: () => void}|
       undefined;
   isLastUpdate:boolean = false;
+  selectionPathCanvas:HTMLCanvasElement = document.createElement("canvas");
+
+  constructor(layer: UserLayerWithAnnotations, options: any) {
+    super(layer, options);
+
+    // Initialize the 2D canvas context.
+    this.selectionPathCanvas.getContext("2d");
+  }
 
   abstract getInitialAnnotation(
       mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState): Annotation;
@@ -996,6 +1004,169 @@ export abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
     }
   }
 
+  // Enable the two-step annotation tool to select annotations within the drawn geometry.
+  select(mouseState: MouseSelectionState) {
+    this.isLastUpdate = false;
+    const {annotationLayer} = this;
+    if (annotationLayer === undefined) {
+      // Not yet ready.
+      return;
+    }
+    if (mouseState.active) {
+      const updatePointB = () => {
+        const state = this.inProgressAnnotation!;
+        const reference = state.reference;
+        const newAnnotation =
+            this.getUpdatedAnnotation(reference.value!, mouseState, annotationLayer);
+        state.annotationLayer.source.update(reference, newAnnotation);
+        this.layer.selectedAnnotation.value = {id: reference.id};
+      };
+
+      if (this.inProgressAnnotation === undefined) {
+        const reference = annotationLayer.source.add(
+            this.getInitialAnnotation(mouseState, annotationLayer), /*commit=*/false);
+        this.layer.selectedAnnotation.value = {id: reference.id};
+        const mouseDisposer = mouseState.changed.add(updatePointB);
+        const disposer = () => {
+          mouseDisposer();
+          reference.dispose();
+        };
+        this.inProgressAnnotation = {
+          annotationLayer,
+          reference,
+          disposer,
+        };
+      } else {
+        let annotationLayer = this.inProgressAnnotation.annotationLayer;
+
+        updatePointB();
+
+        // TODO Clean up typecasting.
+        const selectionGeometry:any = this.inProgressAnnotation.reference.value;
+        let pathCtx = this.selectionPathCanvas.getContext("2d");
+        pathCtx!.beginPath();
+        for (let i = 0; i < selectionGeometry.points.length; ++i) {
+          let point = selectionGeometry.points[i];
+
+          if (i == 0) {
+            pathCtx!.moveTo(point[0], point[1]);
+          }
+          else {
+            pathCtx!.lineTo(point[0], point[1]);
+          }
+        }
+        pathCtx!.closePath();
+      
+        if (selectionGeometry && selectionGeometry.points) {
+          for (const [id, annotation] of annotationLayer.source.references.entries()) {
+            if (id == this.inProgressAnnotation.reference.id) { // Don't check the selection geometry with itself.
+              continue;
+            }
+            if (annotation.value == null) { // In case the geometry has been removed.
+              continue;
+            }
+
+            let testGeometry:any = annotation.value;
+            let hasSelection = false;
+            testGeometry.selected = [];
+
+            if (testGeometry.points) {
+              for (let i = 0; i < testGeometry.points.length; ++i) {
+                let point:vec3 = testGeometry.points[i];
+                let isPointInSelection = pathCtx!.isPointInPath(point[0], point[1]);
+                if (isPointInSelection) {
+                  testGeometry.selected.push(true);
+                  hasSelection = true;
+                }
+                else {
+                  testGeometry.selected.push(false);
+                }
+              }
+            }
+
+            // Record whether any portion of the geometry has been selected for downstream handling.
+            testGeometry.hasSelection = hasSelection;
+          }
+        }
+        
+        // TODO This appears to leave a null reference (by design?) in the 'references' object, but removes it from the 'annotationMap' object.
+        // TODO Manage the deletion more cleanly; this appears to temporarily leave a null reference for the renderer.
+        annotationLayer.source.delete(this.inProgressAnnotation.reference);
+        this.inProgressAnnotation.disposer();
+        this.inProgressAnnotation = undefined;
+
+        // TODO Naming the flag isLastUpdate isn't accurate, rename to 'captureUpdates'?
+        annotationLayer.source.changed.dispatch();
+        this.isLastUpdate = true;
+      }
+    }
+  }
+
+  deleteSelection() {
+    const {annotationLayer} = this;
+    if (annotationLayer === undefined) {
+      // Not yet ready.
+      return;
+    }
+
+    let isLayerModified = false;
+
+    // TODO This only supports polygon and line string editing right now.
+    for (const annotation of annotationLayer.source.references.values()) {
+      if (annotation.value && annotation.value.hasSelection && (annotation.value.type == AnnotationType.POLYGON || annotation.value.type == AnnotationType.LINESTRING)) {
+        isLayerModified = true;
+
+        let lineStrings:any = [];
+        let retainPoint = false;
+        
+        // Note that the selected points are the ones that should *not* be retained.
+        for (let i = 0; i < annotation.value.points.length; ++i) {
+          if (annotation.value.selected![i] == false && retainPoint == false) { // Start a new line string.
+            lineStrings.push([]);
+          }
+
+          retainPoint = !annotation.value.selected![i];
+
+          if (retainPoint) {
+            lineStrings[lineStrings.length - 1].push(annotation.value.points[i]);
+          }
+        }
+
+        // If the annotation being modified is a polygon, when the first line string and last line string are contiguous they should be fused.
+        if (annotation.value.type == AnnotationType.POLYGON && lineStrings.length > 1 && annotation.value.selected![0] == false && annotation.value.selected![annotation.value.points.length - 1] == false) {
+          lineStrings[0] = [].concat(lineStrings[lineStrings.length - 1], lineStrings[0]);
+          lineStrings.splice(lineStrings.length - 1, 1);
+        }
+
+        // Delete the annotation.
+        annotationLayer.source.delete(annotation);
+
+        // Draw the remaining line strings.
+        for (let i = 0; i < lineStrings.length; ++i) {
+          let lineString = <LineString>{
+            id: '',
+            type: AnnotationType.LINESTRING,
+            description: '',
+            points: lineStrings[i],
+            anntype: "unknown", // TODO Propagate the layer type (follow approach from newly-drawn annotations).
+            reviewed: "unreviewed"
+          };
+
+          annotationLayer.source.add(lineString, true);
+        }
+      }
+    }
+
+    // Refresh the layer if it was modified.
+    if (isLayerModified) {
+      annotationLayer.source.changed.dispatch();
+    }
+
+    // TODO Naming the flag isLastUpdate isn't accurate, rename to 'captureUpdates'?
+    annotationLayer.source.changed.dispatch();
+    this.isLastUpdate = true;
+  }
+
   disposed() {
     this.deactivate();
     super.disposed();
@@ -1023,7 +1194,9 @@ abstract class PlacePolygonAnnotationTool extends TwoStepAnnotationTool {
         description: '',
         points: [point],
         anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
-        reviewed: "unreviewed"
+        reviewed: "unreviewed",
+        selected: [],
+        hasSelection: false
       };
     }
 

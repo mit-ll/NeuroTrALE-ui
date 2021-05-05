@@ -75,6 +75,7 @@ export function getDefaultRenderedDataPanelBindings() {
           'at:control+mousedown0': 'annotate',
           'at:mousedown2': 'move-to-mouse-position',
           'at:control+mousedown2': 'select-annotation',
+          'at:alt+shift+mousedown0': 'create-annotation-selection',
           'at:alt+mousedown0': 'move-annotation',
           'at:control+alt+mousedown0': 'create-annotation-point',
           'at:control+alt+shift+mousedown2': 'delete-annotation-point',
@@ -85,6 +86,7 @@ export function getDefaultRenderedDataPanelBindings() {
           'at:touchhold1': 'move-to-mouse-position',
           'at:touchtap1x2': 'select',
           'at:touchtap2x3': 'snap',
+          'delete': 'delete-selection',
         },
         {label: 'All Data Panels'});
   }

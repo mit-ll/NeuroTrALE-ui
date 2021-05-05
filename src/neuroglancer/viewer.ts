@@ -655,6 +655,50 @@ export class Viewer extends RefCounted implements ViewerState {
       userLayer.tool.value.trigger(this.mouseState);
     });
 
+    this.bindAction('create-annotation-selection', () => {
+      const selectedLayer = this.selectedLayer.layer;
+      if (selectedLayer === undefined) {
+        StatusMessage.showTemporaryMessage('The annotate command requires a layer to be selected.');
+        return;
+      }
+      const userLayer = selectedLayer.layer;
+      if (userLayer === null || userLayer.tool.value === undefined) {
+        StatusMessage.showTemporaryMessage(`The selected layer (${
+            JSON.stringify(selectedLayer.name)}) does not have an active annotation tool.`);
+        return;
+      }
+
+      // TODO Casting to 'any' is bad here; why isn't typescript picking up on the TwoStepAnnotationTool cast?
+      const tool:any = userLayer.tool.value;
+      if (tool instanceof TwoStepAnnotationTool && tool.select == undefined) {
+        StatusMessage.showTemporaryMessage('The selected annotation tool does not support region selection.');
+        return;
+      }
+      tool.select(this.mouseState);
+    });
+    
+    this.bindAction('delete-selection', () => {
+      const selectedLayer = this.selectedLayer.layer;
+      if (selectedLayer === undefined) {
+        StatusMessage.showTemporaryMessage('The annotate command requires a layer to be selected.');
+        return;
+      }
+      const userLayer = selectedLayer.layer;
+      if (userLayer === null || userLayer.tool.value === undefined) {
+        StatusMessage.showTemporaryMessage(`The selected layer (${
+            JSON.stringify(selectedLayer.name)}) does not have an active annotation tool.`);
+        return;
+      }
+
+      // TODO Casting to 'any' is bad here; why isn't typescript picking up on the TwoStepAnnotationTool cast?
+      const tool:any = userLayer.tool.value;
+      if (tool instanceof TwoStepAnnotationTool && tool.select == undefined) {
+        StatusMessage.showTemporaryMessage('The selected annotation tool does not support region deleting.');
+        return;
+      }
+      tool.deleteSelection();
+    });
+
     this.bindAction('toggle-axis-lines', () => this.showAxisLines.toggle());
     this.bindAction('toggle-scale-bar', () => this.showScaleBar.toggle());
     this.bindAction('toggle-default-annotations', () => this.showDefaultAnnotations.toggle());
@@ -809,29 +853,35 @@ export class Viewer extends RefCounted implements ViewerState {
           this.layerManager.removeManagedLayer(existingLayer);
         }
 
-        const layer = new ManagedUserLayerWithSpecification(layerName, {}, this.layerSpecification);
-        this.layerSpecification.initializeLayerFromSpec(layer, {type: "annotation", annotations: layers[cellType], anntype: cellType});
+        try {
+          const layer = new ManagedUserLayerWithSpecification(layerName, {}, this.layerSpecification);
+          this.layerSpecification.initializeLayerFromSpec(layer, {type: "annotation", annotations: layers[cellType], anntype: cellType});
 
-        const annotationLayer = layer.layer;
-        if (annotationLayer instanceof AnnotationUserLayer) {
-          annotationLayer.annotationColor.value[0] = color[0];
-          annotationLayer.annotationColor.value[1] = color[1];
-          annotationLayer.annotationColor.value[2] = color[2];
-          annotationLayer.annotationColor.changed.dispatch();
+          const annotationLayer = layer.layer;
+          if (annotationLayer instanceof AnnotationUserLayer) {
+            annotationLayer.annotationColor.value[0] = color[0];
+            annotationLayer.annotationColor.value[1] = color[1];
+            annotationLayer.annotationColor.value[2] = color[2];
+            annotationLayer.annotationColor.changed.dispatch();
 
-          annotationLayer.localAnnotations.changed.add(() => {
-            this.saveAnnotationLayerData(annotationLayer.sourceUrl!);
-          });
+            annotationLayer.localAnnotations.changed.add(() => {
+              this.saveAnnotationLayerData(annotationLayer.sourceUrl!);
+            });
 
-          annotationLayer.sourceUrl = jsonUrl;
-          annotationLayer.annotationType = cellType;
-        }
+            annotationLayer.sourceUrl = jsonUrl;
+            annotationLayer.annotationType = cellType;
+          }
 
-        layer.sourceUrl = jsonUrl;
-        this.layerSpecification.add(layer);
+          layer.sourceUrl = jsonUrl;
+          this.layerSpecification.add(layer);
 
-        //colorIndex = (((colorIndex - 1) % outlineColors.length) + outlineColors.length) % outlineColors.length;
-        colorIndex = (colorIndex + 1) % outlineColors.length;
+          //colorIndex = (((colorIndex - 1) % outlineColors.length) + outlineColors.length) % outlineColors.length;
+          colorIndex = (colorIndex + 1) % outlineColors.length;
+          }
+          catch {
+            // TODO Refine this to be a modal popup.
+            alert("Warning: axon data retrieved from the server is malformed; further actions taken may not be saved properly. Please contact the system administrator.");
+          }
       }
 
     }, this.abortControllerAxon);
@@ -918,29 +968,35 @@ export class Viewer extends RefCounted implements ViewerState {
           this.layerManager.removeManagedLayer(existingLayer);
         }
 
-        const layer = new ManagedUserLayerWithSpecification(layerName, {}, this.layerSpecification);
-        this.layerSpecification.initializeLayerFromSpec(layer, {type: "annotation", annotations: layers[cellType], anntype: cellType});
+        try {
+          const layer = new ManagedUserLayerWithSpecification(layerName, {}, this.layerSpecification);
+          this.layerSpecification.initializeLayerFromSpec(layer, {type: "annotation", annotations: layers[cellType], anntype: cellType});
 
-        const annotationLayer = layer.layer;
-        if (annotationLayer instanceof AnnotationUserLayer) {
-          annotationLayer.annotationColor.value[0] = color[0];
-          annotationLayer.annotationColor.value[1] = color[1];
-          annotationLayer.annotationColor.value[2] = color[2];
-          annotationLayer.annotationColor.changed.dispatch();
+          const annotationLayer = layer.layer;
+          if (annotationLayer instanceof AnnotationUserLayer) {
+            annotationLayer.annotationColor.value[0] = color[0];
+            annotationLayer.annotationColor.value[1] = color[1];
+            annotationLayer.annotationColor.value[2] = color[2];
+            annotationLayer.annotationColor.changed.dispatch();
 
-          annotationLayer.localAnnotations.changed.add(() => {
-            this.saveAnnotationLayerData(annotationLayer.sourceUrl!);
-          });
+            annotationLayer.localAnnotations.changed.add(() => {
+              this.saveAnnotationLayerData(annotationLayer.sourceUrl!);
+            });
 
-          annotationLayer.sourceUrl = jsonUrl;
-          annotationLayer.annotationType = cellType;
+            annotationLayer.sourceUrl = jsonUrl;
+            annotationLayer.annotationType = cellType;
+          }
+
+          layer.sourceUrl = jsonUrl;
+          this.layerSpecification.add(layer);
+
+          //colorIndex = (((colorIndex - 1) % outlineColors.length) + outlineColors.length) % outlineColors.length;
+          colorIndex = (colorIndex + 1) % outlineColors.length;
         }
-
-        layer.sourceUrl = jsonUrl;
-        this.layerSpecification.add(layer);
-
-        //colorIndex = (((colorIndex - 1) % outlineColors.length) + outlineColors.length) % outlineColors.length;
-        colorIndex = (colorIndex + 1) % outlineColors.length;
+        catch {
+          // TODO Refine this to be a modal popup.
+          alert("Warning: centroid data retrieved from the server is malformed; further actions taken may not be saved properly. Please contact the system administrator.");
+        }
       }
     }, this.abortControllerCentroid);
   }
@@ -1027,28 +1083,34 @@ export class Viewer extends RefCounted implements ViewerState {
           }
         }
 
-        const layer = new ManagedUserLayerWithSpecification(layerName, {}, this.layerSpecification);
-        this.layerSpecification.initializeLayerFromSpec(layer, {type: "annotation", annotations: layers[cellType], anntype: cellType});
+        try {
+          const layer = new ManagedUserLayerWithSpecification(layerName, {}, this.layerSpecification);
+          this.layerSpecification.initializeLayerFromSpec(layer, {type: "annotation", annotations: layers[cellType], anntype: cellType});
 
-        const annotationLayer = layer.layer;
-        if (annotationLayer instanceof AnnotationUserLayer) {
-          annotationLayer.annotationColor.value[0] = color[0];
-          annotationLayer.annotationColor.value[1] = color[1];
-          annotationLayer.annotationColor.value[2] = color[2];
-          annotationLayer.annotationColor.changed.dispatch();
-
-          annotationLayer.localAnnotations.changed.add(() => {
-            this.saveAnnotationLayerData(annotationLayer.sourceUrl!);
-          });
-
-          annotationLayer.sourceUrl = jsonUrl;
-          annotationLayer.annotationType = cellType;
+          const annotationLayer = layer.layer;
+          if (annotationLayer instanceof AnnotationUserLayer) {
+            annotationLayer.annotationColor.value[0] = color[0];
+            annotationLayer.annotationColor.value[1] = color[1];
+            annotationLayer.annotationColor.value[2] = color[2];
+            annotationLayer.annotationColor.changed.dispatch();
+  
+            annotationLayer.localAnnotations.changed.add(() => {
+              this.saveAnnotationLayerData(annotationLayer.sourceUrl!);
+            });
+  
+            annotationLayer.sourceUrl = jsonUrl;
+            annotationLayer.annotationType = cellType;
+          }
+  
+          layer.sourceUrl = jsonUrl;
+          this.layerSpecification.add(layer);
+  
+          colorIndex = (colorIndex + 1) % outlineColors.length;          
         }
-
-        layer.sourceUrl = jsonUrl;
-        this.layerSpecification.add(layer);
-
-        colorIndex = (colorIndex + 1) % outlineColors.length;
+        catch {
+          // TODO Refine this to be a modal popup.
+          alert("Warning: contour data retrieved from the server is malformed; further actions taken may not be saved properly. Please contact the system administrator.");
+        }
       }
 
       layersToDelete.forEach((layerName: string) => {

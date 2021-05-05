@@ -497,12 +497,12 @@ export abstract class RenderedDataPanel extends RenderedPanel {
     registerActionListener(element, 'move-to-mouse-position', () => {
       let {mouseState} = this.viewer;
 
-      // If the user right clicks on annotation data the coordinate will be NaN, which throws the UI into a weird state.
-      if (isNaN(mouseState.position[0]) || isNaN(mouseState.position[1]) || isNaN(mouseState.position[2])) {
-        return;
-      }
-
       if (mouseState.updateUnconditionally()) {
+        // If the user right clicks on annotation data the coordinate will be NaN, which throws the UI into a weird state.
+        if (isNaN(mouseState.position[0]) || isNaN(mouseState.position[1]) || isNaN(mouseState.position[2])) {
+          return;
+        }
+
         let position = this.navigationState.pose.position;
         vec3.copy(position.spatialCoordinates, mouseState.position);
         position.changed.dispatch();

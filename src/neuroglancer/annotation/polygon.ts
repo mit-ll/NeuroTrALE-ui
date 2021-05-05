@@ -252,7 +252,9 @@ registerAnnotationTypeRenderHandler(AnnotationType.POLYGON, {
   pickIdsPerInstance: (annotations) => {
     let pickIdCounts = [];
     for (let i = 0; i < annotations.length; ++i) {
-      pickIdCounts.push(annotations[i].points.length * 2); // One per point and one per edge.
+      if (annotations[i]) { // If an annotation is deleted while drawing it, the reference can be null here.
+        pickIdCounts.push(annotations[i].points.length * 2); // One per point and one per edge.
+      }
     }
 
     return pickIdCounts;

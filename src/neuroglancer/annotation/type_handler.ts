@@ -30,6 +30,7 @@ export interface AnnotationRenderContext {
   renderContext: SliceViewPanelRenderContext|PerspectiveViewRenderContext;
   bufferOffset: number;
   colorMap: Array<vec4 | null>;
+  sizeMap: Array<Number | null>;
   count: number;
   byteCount: number[];
   basePickId: number;

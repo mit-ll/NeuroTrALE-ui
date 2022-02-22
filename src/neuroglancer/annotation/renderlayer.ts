@@ -35,7 +35,6 @@ import {SegmentationDisplayState} from 'neuroglancer/segmentation_display_state/
 import {SharedWatchableValue} from 'neuroglancer/shared_watchable_value';
 import {SliceViewPanelRenderLayer} from 'neuroglancer/sliceview/panel';
 import {WatchableValueInterface} from 'neuroglancer/trackable_value';
-import {binarySearch} from 'neuroglancer/util/array';
 import {Borrowed, Owned, RefCounted} from 'neuroglancer/util/disposable';
 import {mat4, vec4} from 'neuroglancer/util/geom';
 import {NullarySignal} from 'neuroglancer/util/signal';
@@ -163,6 +162,7 @@ export class AnnotationLayer extends RefCounted {
   typeToOffset: number[];
   numPickIds: number;
   data: Uint8Array|undefined;
+  drawControlPoints: boolean = true;
 
   get source() {
     return this.state.source;
@@ -233,6 +233,7 @@ export class AnnotationLayer extends RefCounted {
     this.registerDisposer(this.state.fillOpacity.changed.add(this.redrawNeeded.dispatch));
     this.registerDisposer(this.hoverState.changed.add(this.redrawNeeded.dispatch));
     this.registerDisposer(this.transform.changed.add(this.redrawNeeded.dispatch));
+    this.registerDisposer(this.state.sizeFilter.changed.add(this.redrawNeeded.dispatch));
   }
 
   get gl() {
@@ -347,6 +348,7 @@ function AnnotationRenderLayer<TBase extends {
           const count = ids.length;
           const byteCount: number[] = [];
           const colors: Array<vec4 | null> = [];
+          const sizes: Array<Number | null> = [];
           const handler = getAnnotationTypeRenderHandler(annotationType);
           let selectedIndex = 0xFFFFFFFF;
 
@@ -354,14 +356,17 @@ function AnnotationRenderLayer<TBase extends {
           ids.forEach((id) => {
             let bytes = handler.bytes(this.base.state.source.getReference(id).value!);
             let color = annotationColorMap.get(id);
+            let size = this.base.state.source.getReference(id).value!.size;
             colors.push(color ? color : null);
+            sizes.push(size ? size : null);
             byteCount.push(bytes);
             annotations.push(this.base.state.source.getReference(id).value!);
           });
 
           let pickIds = handler.pickIdsPerInstance(annotations);
           if (hoverValue !== undefined) {
-            const index = binarySearch(ids, hoverValue.id, (a, b) => a < b ? -1 : a === b ? 0 : 1);
+            //const index = binarySearch(ids, hoverValue.id, (a, b) => a < b ? -1 : a === b ? 0 : 1);
+            const index = ids.indexOf(hoverValue.id); // TODO This is a binary search in the original code, but the array is not sorted...?
             if (index >= 0) {
               //selectedIndex = index * handler.pickIdsPerInstance;
 
@@ -375,6 +380,16 @@ function AnnotationRenderLayer<TBase extends {
               selectedIndex += hoverValue.partIndex;
             }
           }
+
+          // Override the color for any annotation that may be selected by the user for fixed coloring.
+          let layerSelectedAnnotationId = (<AnnotationLayer>this.base).state.selectedAnnotationId;
+          if (layerSelectedAnnotationId != null) {
+            const index = ids.indexOf(layerSelectedAnnotationId);
+            if (index >= 0) {
+              colors[index] = vec4.fromValues(0.9, 0.85, 0.05, 1);
+            }
+          }
+
           const context: AnnotationRenderContext = {
             annotationLayer: base,
             renderContext,
@@ -383,6 +398,7 @@ function AnnotationRenderLayer<TBase extends {
             buffer: chunk.buffer!,
             bufferOffset: typeToOffset[annotationType],
             colorMap: colors,
+            sizeMap: sizes,
             count,
             byteCount,
             projectionMatrix,

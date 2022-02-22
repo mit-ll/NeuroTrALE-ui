@@ -21,7 +21,7 @@ import {RenderLayerRole} from 'neuroglancer/layer';
 import {SegmentationDisplayState} from 'neuroglancer/segmentation_display_state/frontend';
 import {TrackableAlphaValue} from 'neuroglancer/trackable_alpha';
 import {TrackableBoolean} from 'neuroglancer/trackable_boolean';
-import {WatchableValue} from 'neuroglancer/trackable_value';
+import {TrackableValue, WatchableValue} from 'neuroglancer/trackable_value';
 import {TrackableRGB} from 'neuroglancer/util/color';
 import {Owned, RefCounted} from 'neuroglancer/util/disposable';
 import {mat4} from 'neuroglancer/util/geom';
@@ -36,6 +36,8 @@ export class AnnotationLayerState extends RefCounted {
   role: RenderLayerRole;
   color: TrackableRGB;
   fillOpacity: TrackableAlphaValue;
+  sizeFilter: TrackableValue<number>;
+  selectedAnnotationId: string|null = null;
 
   /**
    * undefined means may have a segmentation state.  null means no segmentation state is supported.
@@ -73,7 +75,7 @@ export class AnnotationLayerState extends RefCounted {
     hoverState?: AnnotationHoverState,
     role?: RenderLayerRole, color: TrackableRGB, fillOpacity: TrackableAlphaValue,
     segmentationState?: WatchableValue<SegmentationDisplayState|undefined|null>,
-    filterBySegmentation?: TrackableBoolean,
+    filterBySegmentation?: TrackableBoolean, sizeFilter?: TrackableValue<Number>
   }) {
     super();
     const {
@@ -85,6 +87,12 @@ export class AnnotationLayerState extends RefCounted {
       fillOpacity,
       segmentationState = new WatchableValue(null),
       filterBySegmentation = new TrackableBoolean(false),
+      sizeFilter = new TrackableValue(0, function(value) {
+        if (value <= 0) {
+          throw new Error(`Expected positive integer, but received: ${value}.`);
+        }
+        return value;
+      })
     } = options;
     this.transform = transform;
     this.source = this.registerDisposer(source);
@@ -94,5 +102,6 @@ export class AnnotationLayerState extends RefCounted {
     this.fillOpacity = fillOpacity;
     this.segmentationState = segmentationState;
     this.filterBySegmentation = filterBySegmentation;
+    this.sizeFilter = sizeFilter;
   }
 }

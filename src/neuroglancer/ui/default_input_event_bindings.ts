@@ -68,6 +68,7 @@ export function getDefaultRenderedDataPanelBindings() {
           'shift+arrowup': 'rotate-relative-x+',
           'shift+arrowleft': 'rotate-relative-y-',
           'shift+arrowright': 'rotate-relative-y+',
+          'control+keyz': 'undo', 
           'at:control+wheel': {action: 'zoom-via-wheel', preventDefault: true},
           'at:wheel': {action: 'z+1-via-wheel', preventDefault: true},
           'at:shift+wheel': {action: 'z+10-via-wheel', preventDefault: true},
@@ -76,6 +77,7 @@ export function getDefaultRenderedDataPanelBindings() {
           'at:mousedown2': 'move-to-mouse-position',
           'at:control+mousedown2': 'select-annotation',
           'at:alt+shift+mousedown0': 'create-annotation-selection',
+          'at:alt+keyh': 'toggle-control-points',
           'at:alt+mousedown0': 'move-annotation',
           'at:control+alt+mousedown0': 'create-annotation-point',
           'at:control+alt+shift+mousedown2': 'delete-annotation-point',
@@ -87,6 +89,8 @@ export function getDefaultRenderedDataPanelBindings() {
           'at:touchtap1x2': 'select',
           'at:touchtap2x3': 'snap',
           'delete': 'delete-selection',
+          'control+arrowup': 'follow-annotation-forward',
+          'control+arrowdown': 'follow-annotation-backward'
         },
         {label: 'All Data Panels'});
   }

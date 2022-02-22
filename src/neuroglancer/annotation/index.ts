@@ -20,7 +20,7 @@
 
 import {Borrowed, RefCounted} from 'neuroglancer/util/disposable';
 import {mat4, vec3} from 'neuroglancer/util/geom';
-import {parseArray, verify3dScale, verify3dVec, verifyEnumString, verifyObject, verifyObjectProperty, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
+import {parseArray, verify3dScale, verify3dVec, verifyEnumString, verifyObject, verifyObjectProperty, verifyOptionalInt, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
 import {getRandomHexString} from 'neuroglancer/util/random';
 import {Signal, NullarySignal} from 'neuroglancer/util/signal';
 import {Uint64} from 'neuroglancer/util/uint64';
@@ -71,6 +71,7 @@ export interface AnnotationBase {
   reviewed?: string|undefined;
   selected?: boolean[];
   hasSelection?: boolean;
+  size?: number;
 
   segments?: Uint64[];
 }
@@ -306,6 +307,9 @@ export function annotationToJson(annotation: Annotation) {
   if (segments !== undefined && segments.length > 0) {
     result.segments = segments.map(x => x.toString());
   }
+  if (annotation.size !== undefined) {
+    result.length = annotation.size;
+  }
   return result;
 }
 
@@ -324,6 +328,7 @@ export function restoreAnnotation(obj: any, allowMissingId = false): Annotation 
         obj, 'segments',
         x => x === undefined ? undefined : parseArray(x, y => Uint64.parseString(y))),
     type,
+    size: verifyObjectProperty(obj, 'length', verifyOptionalInt)
   };
   getAnnotationTypeHandler(type).restoreState(result, obj);
   return result;
@@ -338,6 +343,7 @@ export interface AnnotationSourceSignals {
 
 export class AnnotationSource extends RefCounted implements AnnotationSourceSignals {
   private annotationMap = new Map<AnnotationId, Annotation>();
+  public annotationSizeRange: number[] = [-Infinity, Infinity];
   changed = new NullarySignal();
   readonly = false;
   childAdded = new Signal<(annotation: Annotation) => void>();
@@ -357,6 +363,9 @@ export class AnnotationSource extends RefCounted implements AnnotationSourceSign
       throw new Error(`Annotation id already exists: ${JSON.stringify(annotation.id)}.`);
     }
     this.annotationMap.set(annotation.id, annotation);
+
+    this.updateAnnotationSizeRange(annotation);
+
     this.changed.dispatch();
     this.childAdded.dispatch(annotation);
     if (!commit) {
@@ -376,6 +385,9 @@ export class AnnotationSource extends RefCounted implements AnnotationSourceSign
     }
     reference.value = annotation;
     this.annotationMap.set(annotation.id, annotation);
+
+    this.updateAnnotationSizeRange(annotation);
+
     reference.changed.dispatch();
     this.changed.dispatch();
     this.childUpdated.dispatch(annotation);
@@ -399,6 +411,9 @@ export class AnnotationSource extends RefCounted implements AnnotationSourceSign
     }
     
     this.annotationMap.delete(reference.id);
+
+    this.recalculateAnnotationSizeRange();
+
     this.pending.delete(reference.id);
     reference.changed.dispatch();
     this.changed.dispatch();
@@ -440,6 +455,29 @@ export class AnnotationSource extends RefCounted implements AnnotationSourceSign
     this.changed.dispatch();
   }
 
+  private recalculateAnnotationSizeRange() {
+    this.annotationSizeRange = [-Infinity, Infinity];
+
+    for (const [, annotation] of this.annotationMap) {
+      this.updateAnnotationSizeRange(annotation);
+    }
+  }
+
+  private updateAnnotationSizeRange(annotation: Annotation) {
+    if (this.annotationSizeRange[0] == -Infinity && annotation.size != undefined) {
+      this.annotationSizeRange[0] = annotation.size;
+    }
+    if (this.annotationSizeRange[1] == Infinity && annotation.size != undefined) {
+      this.annotationSizeRange[1] = annotation.size;
+    }
+    if (this.annotationSizeRange[0] != -Infinity && annotation.size != undefined && annotation.size < this.annotationSizeRange[0]) {
+      this.annotationSizeRange[0] = annotation.size;
+    }
+    if (this.annotationSizeRange[1] != Infinity && annotation.size != undefined && annotation.size > this.annotationSizeRange[1]) {
+      this.annotationSizeRange[1] = annotation.size;
+    }
+  }
+
   restoreState(obj: any) {
     const {annotationMap} = this;
     annotationMap.clear();
@@ -448,6 +486,8 @@ export class AnnotationSource extends RefCounted implements AnnotationSourceSign
       parseArray(obj, x => {
         const annotation = restoreAnnotation(x);
         annotationMap.set(annotation.id, annotation);
+
+        this.updateAnnotationSizeRange(annotation);
       });
     }
     for (const reference of this.references.values()) {

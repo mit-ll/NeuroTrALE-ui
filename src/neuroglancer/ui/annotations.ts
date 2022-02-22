@@ -26,7 +26,7 @@ import {AnnotationLayer, AnnotationLayerState, PerspectiveViewAnnotationLayer, S
 import {DataFetchSliceViewRenderLayer, MultiscaleAnnotationSource} from 'neuroglancer/annotation/frontend_source';
 import {setAnnotationHoverStateFromMouseState} from 'neuroglancer/annotation/selection';
 import {MouseSelectionState, UserLayer} from 'neuroglancer/layer';
-import {VoxelSize} from 'neuroglancer/navigation_state';
+import {NavigationState, VoxelSize} from 'neuroglancer/navigation_state';
 import {SegmentationDisplayState} from 'neuroglancer/segmentation_display_state/frontend';
 import {TrackableAlphaValue, trackableAlphaValue} from 'neuroglancer/trackable_alpha';
 import {registerNested, TrackableValueInterface, WatchableRefCounted, WatchableValue} from 'neuroglancer/trackable_value';
@@ -416,6 +416,12 @@ export class AnnotationLayerView extends Tab {
     {
       const widget = this.registerDisposer(new RangeWidget(this.annotationLayer.fillOpacity));
       widget.promptElement.textContent = 'Fill opacity';
+      this.element.appendChild(widget.element);
+    }
+
+    {
+      const widget = this.registerDisposer(new RangeWidget(this.annotationLayer.sizeFilter, {min: 0, max: 1, step: 0.1}));
+      widget.promptElement.textContent = 'Size filter';
       this.element.appendChild(widget.element);
     }
 
@@ -944,6 +950,11 @@ export abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
       undefined;
   isLastUpdate:boolean = false;
   selectionPathCanvas:HTMLCanvasElement = document.createElement("canvas");
+  followAnnotationIndex:number = 0;
+  followAnnotationId:string = "";
+  followAnnotationLocation:vec3 = vec3.create();
+  followAnnotationDistance:number = 10;
+  followAnnotationForward:boolean|null = null;
 
   constructor(layer: UserLayerWithAnnotations, options: any) {
     super(layer, options);
@@ -1167,6 +1178,103 @@ export abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
     this.isLastUpdate = true;
   }
 
+  followAnnotation(navigationState: NavigationState, moveForward:boolean) {
+    let annotation = this.layer.selectedAnnotation.reference!.value!;
+    let points = (annotation as Polygon || annotation as LineString).points;
+    let interpolate = true;
+
+    if (points) {
+      if (!interpolate) {
+        let referenceIndex = 0; // In case the annotation was not selected before.
+
+        // If the annotation selection has not changed, continue moving along it in the desired direction.
+        if (this.followAnnotationId == annotation.id) {
+          referenceIndex = moveForward ? this.followAnnotationIndex + 1 : this.followAnnotationIndex - 1;
+          referenceIndex = (referenceIndex + points.length) % points.length;
+        }
+
+        // Determine the next point to move the camera to.
+        let referencePoint = points[referenceIndex];
+        let nextPosition = navigationState.voxelSize.spatialFromVoxel(vec3.create(), vec3.fromValues(referencePoint[0], referencePoint[1], referencePoint[2]));
+
+        // Update the camera.
+        vec3.copy(navigationState.pose.position.spatialCoordinates, nextPosition);
+        navigationState.pose.position.changed.dispatch();
+
+        // Update the reference to continue following the current annotation in case it changed.
+        this.followAnnotationId = annotation.id;
+
+        // Update the reference index.
+        this.followAnnotationIndex = referenceIndex;
+      }
+      else {
+        let referenceIndex = this.followAnnotationId == annotation.id ? this.followAnnotationIndex : 0;
+        if (this.followAnnotationId == annotation.id && moveForward && moveForward != this.followAnnotationForward) {
+          referenceIndex = ((referenceIndex - 1) + points.length) % points.length;
+        }
+        else if (this.followAnnotationId == annotation.id && !moveForward && moveForward != this.followAnnotationForward) {
+          referenceIndex = ((referenceIndex + 1) + points.length) % points.length;
+        }
+
+        let currentPoint = this.followAnnotationId == annotation.id ? this.followAnnotationLocation : points[referenceIndex];
+        let nextPoint = points[((moveForward ? referenceIndex + 1 : referenceIndex - 1) + points.length) % points.length];
+        let direction = vec3.normalize(vec3.create(), vec3.subtract(vec3.create(), nextPoint, currentPoint));
+
+        let moveToPoint = this.followAnnotationId == annotation.id ? this.followAnnotationLocation : currentPoint;
+        let distanceToMove = this.followAnnotationId == annotation.id ? this.followAnnotationDistance : 0;
+
+        // Don't traverse the gap between the first and last points, just jump across it.
+        if (currentPoint == points[0] && nextPoint == points[points.length - 1] || currentPoint == points[points.length - 1] && nextPoint == points[0]) {
+          currentPoint = nextPoint;
+          referenceIndex = moveForward ? referenceIndex + 1 : referenceIndex - 1;
+          nextPoint = points[(referenceIndex + points.length) % points.length];
+          moveToPoint = nextPoint;
+        }
+        else {
+          while (distanceToMove > 0) {
+            moveToPoint = vec3.scaleAndAdd(vec3.create(), currentPoint, direction, distanceToMove);
+            let difference = vec3.subtract(vec3.create(), nextPoint, moveToPoint);
+            let length = vec3.length(difference);
+
+            if (length < distanceToMove && (referenceIndex == points.length - 2 && moveForward || referenceIndex == 1 && !moveForward)) {
+              distanceToMove = 0;
+              moveToPoint = nextPoint;
+              referenceIndex = ((moveForward ? referenceIndex + 1 : referenceIndex - 1) + points.length) % points.length;
+            }
+            if (length < distanceToMove) { // The projection extends beyond the next point, so continue iterating.
+              distanceToMove -= length;
+
+              currentPoint = nextPoint;
+              referenceIndex = ((moveForward ? referenceIndex + 1 : referenceIndex - 1) + points.length) % points.length;
+              nextPoint = points[((moveForward ? referenceIndex + 1 : referenceIndex - 1) + points.length) % points.length];
+              direction = vec3.normalize(vec3.create(), vec3.subtract(vec3.create(), nextPoint, currentPoint));
+            }
+            else { // Didn't extend beyond the next point.
+              distanceToMove = 0;
+            }
+          }
+        }
+
+        // Update the camera.
+        let nextPosition = navigationState.voxelSize.spatialFromVoxel(vec3.create(), vec3.fromValues(moveToPoint[0], moveToPoint[1], moveToPoint[2]));
+        vec3.copy(navigationState.pose.position.spatialCoordinates, nextPosition);
+        navigationState.pose.position.changed.dispatch();
+
+        // Update the reference to continue following the current annotation in case it changed.
+        this.followAnnotationId = annotation.id;
+
+        // Update the reference index.
+        this.followAnnotationIndex = referenceIndex;
+
+        // Update the reference location.
+        this.followAnnotationLocation = moveToPoint;
+
+        // Record the direction being moved.
+        this.followAnnotationForward = moveForward;
+      }
+    }
+  }
+
   disposed() {
     this.deactivate();
     super.disposed();
@@ -1222,6 +1330,57 @@ abstract class PlaceLineStringAnnotationTool extends TwoStepAnnotationTool {
   getInitialAnnotation(mouseState: MouseSelectionState, annotationLayer: AnnotationLayerState):
     Annotation {
       const point = getMousePositionInAnnotationCoordinates(mouseState, annotationLayer);
+      let appendGeometry = false;
+
+      if (appendGeometry) {        
+        const upperLeft = vec3.transformMat4(vec3.create(), vec3.add(vec3.create(), mouseState.position, [-5, -5, 0]), annotationLayer.globalToObject);
+        const upperRight = vec3.transformMat4(vec3.create(), vec3.add(vec3.create(), mouseState.position, [5, -5, 0]), annotationLayer.globalToObject);
+        const lowerRight = vec3.transformMat4(vec3.create(), vec3.add(vec3.create(), mouseState.position, [5, 5, 0]), annotationLayer.globalToObject);
+        const lowerLeft = vec3.transformMat4(vec3.create(), vec3.add(vec3.create(), mouseState.position, [-5, 5, 0]), annotationLayer.globalToObject);
+
+        // Check to see if point is in screen space radius of any other start or end of a line string.
+        // If point overlaps radius, don't create new annotation and instead add new point to existing one.
+        // Signal that getUpdatedAnnotation() should continue adding to existing annotation reference.
+
+        // Generate a path for the test region around the user's point to find other line strings that start or end there.
+        let pathCtx = this.selectionPathCanvas.getContext("2d");
+        pathCtx!.beginPath();
+        pathCtx!.moveTo(upperLeft[0], upperLeft[1]);
+        pathCtx!.lineTo(upperRight[0], upperRight[1]);
+        pathCtx!.lineTo(lowerRight[0], lowerRight[1]);
+        pathCtx!.lineTo(lowerLeft[0], lowerLeft[1]);
+        pathCtx!.closePath();
+
+        for (const annotation of annotationLayer.source.references.values()) {
+          if (annotation.value == null) { // In case the geometry has been removed.
+            continue;
+          }
+
+          let testGeometry:any = annotation.value;
+          let prependPoints = false;
+          let appendPoints = false;
+
+          if (testGeometry.points) {
+            let startPoint = testGeometry.points[0];
+            if (pathCtx!.isPointInPath(startPoint[0], startPoint[1])) { // Starting point is in the selection region.
+              prependPoints = true;
+            }
+
+            if (testGeometry.points.length > 1) {
+              let endPoint = testGeometry.points[testGeometry.points.length - 1];
+              if (pathCtx!.isPointInPath(endPoint[0], endPoint[1])) { // Ending point is in the selection region.
+                appendPoints = true;
+              }
+            }
+          }
+
+          if (prependPoints || appendPoints) { // Only allow modification of a single geometry.
+            //console.log([prependPoints, appendPoints, annotation]);
+            break;
+          }
+        }
+      }
+
       return <LineString>{
         id: '',
         type: this.annotationType,

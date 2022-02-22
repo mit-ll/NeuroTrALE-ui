@@ -17,6 +17,7 @@
 import 'neuroglancer/rendered_data_panel.css';
 import 'neuroglancer/noselect.css';
 
+import {AnnotationLayerState} from 'neuroglancer/annotation/frontend';
 import {Annotation} from 'neuroglancer/annotation';
 import {getSelectedAnnotation} from 'neuroglancer/annotation/selection';
 import {getAnnotationTypeRenderHandler} from 'neuroglancer/annotation/type_handler';
@@ -33,6 +34,7 @@ import {startRelativeMouseDrag} from 'neuroglancer/util/mouse_drag';
 import {TouchEventBinder, TouchPinchInfo, TouchTranslateInfo} from 'neuroglancer/util/touch_bindings';
 import {getWheelZoomAmount} from 'neuroglancer/util/wheel_zoom';
 import {ViewerState} from 'neuroglancer/viewer_state';
+import {StateHistory} from 'neuroglancer/state_management';
 
 const tempVec3 = vec3.create();
 
@@ -154,6 +156,7 @@ export abstract class RenderedDataPanel extends RenderedPanel {
   pickingData = [new FramePickingData(), new FramePickingData()];
   pickRequests = [new PickRequest(), new PickRequest()];
   pickBufferContents: Float32Array = new Float32Array(2 * 4 * pickDiameter * pickDiameter);
+  selectedAnnotationLayerState: AnnotationLayerState|null = null;
 
   /**
    * Reads pick data for the current mouse position into the currently-bound pixel pack buffer.
@@ -514,6 +517,11 @@ export abstract class RenderedDataPanel extends RenderedPanel {
     registerActionListener(element, 'select-annotation', () => {
       const {mouseState, layerManager} = this.viewer;
       const state = getSelectedAnnotation(mouseState, layerManager);
+
+      if (this.selectedAnnotationLayerState != null) {
+        this.selectedAnnotationLayerState.selectedAnnotationId = null;
+      }
+
       if (state === undefined) {
         return;
       }
@@ -526,6 +534,9 @@ export abstract class RenderedDataPanel extends RenderedPanel {
           id: state.id,
           partIndex: state.partIndex
         };
+
+        this.selectedAnnotationLayerState = (<UserLayerWithAnnotations>userLayer).annotationLayerState.value!;
+        this.selectedAnnotationLayerState.selectedAnnotationId = state.id;
       }
     });
 
@@ -621,6 +632,12 @@ export abstract class RenderedDataPanel extends RenderedPanel {
       if (annotationLayer !== undefined && !annotationLayer.source.readonly &&
           selectedAnnotationId !== undefined) {
         const ref = annotationLayer.source.getReference(selectedAnnotationId);
+
+        StateHistory.push({
+          annotation: ref.value,
+          layer: annotationLayer.source
+        }, this.undoDeleteAnnotation);
+
         try {
           mouseState.isCompletingSelection = true;
           annotationLayer.source.delete(ref);
@@ -639,6 +656,13 @@ export abstract class RenderedDataPanel extends RenderedPanel {
         this.zoomByMouse(ratio);
       }
     });
+  }
+
+  undoDeleteAnnotation(stateRecord:any) {
+    let annotation = stateRecord.annotation;
+    annotation.id = annotation.id + "foo";
+
+    stateRecord.layer.add(stateRecord.annotation);
   }
 
   onMouseout(_event: MouseEvent) {

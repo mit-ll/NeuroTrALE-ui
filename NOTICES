@@ -1,6 +1,7 @@
 The Large-Scale Brain Mapping
 repository was originally forked from Neuroglancer commit:
-	    <#######>
+	    f543a5749c63aee71d691a306e14471400e6ded0
+
 This NOTICE file is included to satisfy the APACHE 2.0 redistribution
 requirements of the original Neuroglancer Project.
 
@@ -9,22 +10,45 @@ the source license terms to use, reproduce, and distribute these modifications
 as Derivative Works.
 
 The following MIT authored files were added to Neuroglancer:
-    * :
+    NOTICES
+    src/neuroglancer/annotation/linestring.ts
+    src/neuroglancer/annotation/polygon.ts
+    src/neuroglancer/dir_tree/32px.png
+    src/neuroglancer/dir_tree/40px.png
+    src/neuroglancer/dir_tree/tree_layer.css
+    src/neuroglancer/dir_tree/tree_layer.ts
+    src/neuroglancer/dir_tree/user_layer.css
+    
 To complete the integration of the new functionality the following
-files from the original Neuroglancer branch were additionally modified:
-    * :
+files from the original Neuroglancer commit were additionally modified:
+    package.json
+    package-lock.json
+    src/neuroglancer/layer.ts
+    src/neuroglancer/rendered_data_panel.ts
+    src/neuroglancer/viewer.ts
+    src/neuroglancer/annotation/bounding_box.ts
+    src/neuroglancer/annotation/ellipsoid.ts
+    src/neuroglancer/annotation/frontend_source.ts
+    src/neuroglancer/annotation/index.ts
+    src/neuroglancer/annotation/line.ts
+    src/neuroglancer/annotation/point.ts
+    src/neuroglancer/annotation/renderlayer.ts
+    src/neuroglancer/annotation/type_handler.ts
+    src/neuroglancer/annotation/user_layer.ts
+    src/neuroglancer/chunk_manager/backend.ts
+    src/neuroglancer/ui/annotations.ts
+    src/neuroglancer/ui/default_input_event_bindings.ts
 
 Copyright (C) 2021, MASSACHUSETTS INSTITUTE OF TECHNOLOGY
 SPDX-License-Identifier: BSD-2-Clause
 Subject to FAR 52.227-11 – Patent Rights – Ownership by the Contractor (May 2014)
 
 DISTRIBUTION STATEMENT A. Approved for public release: distribution unlimited.
-This material is based upon work supported by USD(R&E) under Air Force Contract
-No. FA8702-15-D-0001. Any opinions, findings, conclusions or recommendations
-expressed in this material are those of the author(s) and do not necessarily
-reflect the views of USD(R&E).
+This material is based upon work supported by the Defense Advanced Research Projects Agency and MIT under Air Force Contract No. FA8702-15-D-0001. Any opinions, findings, conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the views of the Defense Advanced Research Projects Agency and MIT.
 
 The software/firmware is provided to you on an As-Is basis
+
+Delivered to the U.S. Government with Unlimited Rights, as defined in DFARS Part 252.227-7013 or 7014 (Feb 2014). Notwithstanding any copyright notice, U.S. Government rights in this work are defined by DFARS 252.227-7013 or DFARS 252.227-7014 as detailed above. Use of this work other than as specifically authorized by the U.S. Government may violate any copyrights that exist in this work.
 
 ========
 Neuroglancer is an open source project maintained by Google on GitHub

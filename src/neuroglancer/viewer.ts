@@ -59,6 +59,7 @@ import {RPC} from 'neuroglancer/worker_rpc';
 import { AnnotationUserLayer } from './annotation/user_layer';
 import { TwoStepAnnotationTool } from 'neuroglancer/ui/annotations.ts';
 import { TreeInfoPanelContainer } from 'neuroglancer/dir_tree/tree_layer';
+import { PerspectiveViewAnnotationLayer } from './annotation/renderlayer';
 
 declare var NEUROGLANCER_OVERRIDE_DEFAULT_VIEWER_OPTIONS: any
 
@@ -699,6 +700,60 @@ export class Viewer extends RefCounted implements ViewerState {
       tool.deleteSelection();
     });
 
+    this.bindAction('follow-annotation-forward', () => {
+      const selectedLayer = this.selectedLayer.layer;
+      if (selectedLayer === undefined) {
+        StatusMessage.showTemporaryMessage('The annotate command requires a layer to be selected.');
+        return;
+      }
+      const userLayer = selectedLayer.layer;
+      if (userLayer === null || userLayer.tool.value === undefined) {
+        StatusMessage.showTemporaryMessage(`The selected layer (${
+            JSON.stringify(selectedLayer.name)}) does not have an active annotation tool.`);
+        return;
+      }
+
+      // TODO Casting to 'any' is bad here; why isn't typescript picking up on the TwoStepAnnotationTool cast?
+      const tool:any = userLayer.tool.value;
+      if (tool instanceof TwoStepAnnotationTool && tool.select == undefined) {
+        StatusMessage.showTemporaryMessage('The selected annotation tool does not support annotation following.');
+        return;
+      }
+      tool.followAnnotation(this.navigationState, true);
+    });
+
+    this.bindAction('follow-annotation-backward', () => {
+      const selectedLayer = this.selectedLayer.layer;
+      if (selectedLayer === undefined) {
+        StatusMessage.showTemporaryMessage('The annotate command requires a layer to be selected.');
+        return;
+      }
+      const userLayer = selectedLayer.layer;
+      if (userLayer === null || userLayer.tool.value === undefined) {
+        StatusMessage.showTemporaryMessage(`The selected layer (${
+            JSON.stringify(selectedLayer.name)}) does not have an active annotation tool.`);
+        return;
+      }
+
+      // TODO Casting to 'any' is bad here; why isn't typescript picking up on the TwoStepAnnotationTool cast?
+      const tool:any = userLayer.tool.value;
+      if (tool instanceof TwoStepAnnotationTool && tool.select == undefined) {
+        StatusMessage.showTemporaryMessage('The selected annotation tool does not support annotation following.');
+        return;
+      }
+      tool.followAnnotation(this.navigationState, false);
+    });   
+
+    this.bindAction('toggle-control-points', () => {
+      for (let i = 0; i < this.layerManager.managedLayers.length; ++i) {
+        let layer = this.layerManager.managedLayers[i].layer;
+        if (layer instanceof AnnotationUserLayer) {
+          let annotationLayer = (<PerspectiveViewAnnotationLayer>layer.renderLayers[0]).base;
+          annotationLayer.drawControlPoints = !annotationLayer.drawControlPoints;
+        }
+      }
+    });
+
     this.bindAction('toggle-axis-lines', () => this.showAxisLines.toggle());
     this.bindAction('toggle-scale-bar', () => this.showScaleBar.toggle());
     this.bindAction('toggle-default-annotations', () => this.showDefaultAnnotations.toggle());
@@ -809,16 +864,6 @@ export class Viewer extends RefCounted implements ViewerState {
           layers[annotations[i].anntype] = [];
         }
 
-        for (let j = 0; j < annotations[i].length; ++j) {
-          let x = annotations[i][j][0];
-          let y = annotations[i][j][1];
-          let z = annotations[i][j][2];
-
-          annotations[i][j][0] = y;
-          annotations[i][j][1] = x;
-          annotations[i][j][2] = z;
-        }
-
         layers[annotations[i].anntype].push(annotations[i]);
       }
 
@@ -877,11 +922,11 @@ export class Viewer extends RefCounted implements ViewerState {
 
           //colorIndex = (((colorIndex - 1) % outlineColors.length) + outlineColors.length) % outlineColors.length;
           colorIndex = (colorIndex + 1) % outlineColors.length;
-          }
-          catch {
-            // TODO Refine this to be a modal popup.
-            alert("Warning: axon data retrieved from the server is malformed; further actions taken may not be saved properly. Please contact the system administrator.");
-          }
+        }
+        catch {
+          // TODO Refine this to be a modal popup.
+          alert("Warning: axon data retrieved from the server is malformed; further actions taken may not be saved properly. Please contact the system administrator.");
+        }
       }
 
     }, this.abortControllerAxon);
@@ -1105,7 +1150,7 @@ export class Viewer extends RefCounted implements ViewerState {
           layer.sourceUrl = jsonUrl;
           this.layerSpecification.add(layer);
   
-          colorIndex = (colorIndex + 1) % outlineColors.length;          
+          colorIndex = (colorIndex + 1) % outlineColors.length;
         }
         catch {
           // TODO Refine this to be a modal popup.

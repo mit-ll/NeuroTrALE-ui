@@ -517,7 +517,19 @@ export abstract class RenderedDataPanel extends RenderedPanel {
     registerActionListener(element, 'select-annotation', () => {
       const {mouseState, layerManager} = this.viewer;
       const state = getSelectedAnnotation(mouseState, layerManager);
-
+      const annotationLayer = mouseState.pickedAnnotationLayer;
+      const selectedAnnotationId = mouseState.pickedAnnotationId;
+      if (annotationLayer !== undefined) {
+        if (selectedAnnotationId !== undefined) {
+          let annotationRef = annotationLayer.source.getReference(selectedAnnotationId)!;
+          let annotation = <Annotation>annotationRef.value;
+          if (!annotation.reviewed) {
+            annotation.reviewed = true;
+            annotation.visited = true;
+            annotationLayer.source.changed.dispatch();
+          }
+        }
+      }
       if (this.selectedAnnotationLayerState != null) {
         this.selectedAnnotationLayerState.selectedAnnotationId = null;
       }

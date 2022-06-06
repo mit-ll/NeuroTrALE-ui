@@ -20,7 +20,7 @@
 
 import {Borrowed, RefCounted} from 'neuroglancer/util/disposable';
 import {mat4, vec3} from 'neuroglancer/util/geom';
-import {parseArray, verify3dScale, verify3dVec, verifyEnumString, verifyObject, verifyObjectProperty, verifyOptionalInt, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
+import {parseArray, verify3dScale, verify3dVec, verifyEnumString, verifyObject, verifyObjectProperty, verifyOptionalBoolean, verifyOptionalInt, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
 import {getRandomHexString} from 'neuroglancer/util/random';
 import {Signal, NullarySignal} from 'neuroglancer/util/signal';
 import {Uint64} from 'neuroglancer/util/uint64';
@@ -68,7 +68,8 @@ export interface AnnotationBase {
   id: AnnotationId;
   type: AnnotationType;
   anntype?: string|undefined;
-  reviewed?: string|undefined;
+  reviewed?: boolean;
+  visited?: boolean;
   selected?: boolean[];
   hasSelection?: boolean;
   size?: number;
@@ -303,6 +304,7 @@ export function annotationToJson(annotation: Annotation) {
   result.description = annotation.description || undefined;
   result.anntype = annotation.anntype;
   result.reviewed = annotation.reviewed;
+  result.visited = annotation.visited; 
   const {segments} = annotation;
   if (segments !== undefined && segments.length > 0) {
     result.segments = segments.map(x => x.toString());
@@ -323,7 +325,8 @@ export function restoreAnnotation(obj: any, allowMissingId = false): Annotation 
     id,
     description: verifyObjectProperty(obj, 'description', verifyOptionalString),
     anntype: verifyObjectProperty(obj, 'anntype', verifyOptionalString),
-    reviewed: verifyObjectProperty(obj, 'reviewed', verifyOptionalString),
+    reviewed: verifyObjectProperty(obj, 'reviewed', verifyOptionalBoolean),
+    visited: verifyObjectProperty(obj, 'visited', verifyOptionalBoolean),
     segments: verifyObjectProperty(
         obj, 'segments',
         x => x === undefined ? undefined : parseArray(x, y => Uint64.parseString(y))),

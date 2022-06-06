@@ -328,6 +328,36 @@ function makePointLink(
   }
 }
 
+function makeCheckbox(annotation:Annotation) {
+  const checkbox = document.createElement('input');
+  checkbox.id = annotation.id;
+  checkbox.type = 'checkbox';
+  checkbox.name = 'reviewed status';
+  if (annotation.reviewed == undefined) {
+    return;
+  }
+  if (checkbox.checked) {
+    annotation.visited = true;
+  }
+  if (annotation.reviewed) {
+    checkbox.value = "reviewed";
+    checkbox.checked = true;
+  }
+  else {
+    checkbox.value = "unreviewed";
+    checkbox.checked = false;
+    annotation.reviewed = false;
+  }
+  checkbox.onclick = function() {
+    if (checkbox.checked) {
+      annotation.reviewed = true;
+    } else {
+      annotation.reviewed = false;
+    }
+  }
+  return checkbox;
+}
+
 export function getPositionSummary(
     element: HTMLElement, annotation: Annotation, transform: mat4, voxelSize: VoxelSize,
     setSpatialCoordinates?: (point: vec3) => void) {
@@ -340,22 +370,31 @@ export function getPositionSummary(
       element.appendChild(makePointLinkWithTransform(annotation.pointA));
       element.appendChild(document.createTextNode('–'));
       element.appendChild(makePointLinkWithTransform(annotation.pointB));
+      element.appendChild(document.createTextNode(' | reviewed: '));
+      let lineCheck = makeCheckbox(annotation);
+      element.appendChild(lineCheck!);
       break;
     case AnnotationType.POINT:
       element.appendChild(makePointLinkWithTransform(annotation.point));
+      element.appendChild(document.createTextNode(' | reviewed: '));
+      let pointBox = makeCheckbox(annotation);
+      element.appendChild(pointBox!);
       break;
     case AnnotationType.ELLIPSOID:
       element.appendChild(makePointLinkWithTransform(annotation.center));
       const transformedRadii = transformVectorByMat4(tempVec3, annotation.radii, transform);
       voxelSize.voxelFromSpatial(transformedRadii, transformedRadii);
       element.appendChild(document.createTextNode('±' + formatIntegerBounds(transformedRadii)));
+      element.appendChild(document.createTextNode(' | reviewed: '));
+      let ellipsoidCheck = makeCheckbox(annotation);
+      element.appendChild(ellipsoidCheck!);
       break;
     case AnnotationType.POLYGON:
+    case AnnotationType.LINESTRING: 
       element.appendChild(makePointLinkWithTransform(annotation.points[0])); // TODO Calculate center point.
-      element.appendChild(document.createTextNode(' / ' + annotation.points.length))
-    case AnnotationType.LINESTRING:
-      element.appendChild(makePointLinkWithTransform(annotation.points[0])); // TODO Calculate center point.
-      element.appendChild(document.createTextNode(' / ' + annotation.points.length))
+      element.appendChild(document.createTextNode(' / ' + annotation.points.length + ' | reviewed: '));
+      let polygonLinestringCheck = makeCheckbox(annotation);
+      element.appendChild(polygonLinestringCheck!);
   }
 }
 
@@ -405,6 +444,7 @@ export class AnnotationLayerView extends Tab {
     this.registerDisposer(source.childUpdated.add((annotation) => this.updateAnnotationElement(annotation)));
     this.registerDisposer(source.childDeleted.add((annotationId) => this.deleteAnnotationElement(annotationId)));
     this.registerDisposer(this.visibility.changed.add(() => this.updateView()));
+    this.registerDisposer(source.changed.add(() => updateView()));
     this.registerDisposer(annotationLayer.transform.changed.add(updateView));
     this.updateView();
 
@@ -517,6 +557,7 @@ export class AnnotationLayerView extends Tab {
       }
     }
     this.previousSelectedId = newSelectedId;
+    this.updateView();
   }
 
   private updateHoverView() {
@@ -549,7 +590,13 @@ export class AnnotationLayerView extends Tab {
     const {objectToGlobal} = annotationLayer;
 
     const element = this.makeAnnotationListElement(annotation, objectToGlobal);
-    annotationListContainer.appendChild(element);
+    // sort annotation list by review vs unreviewed 
+    if (annotation.reviewed) {
+      annotationListContainer.appendChild(element);
+    } else {
+      annotationListContainer.insertBefore(element, annotationListContainer.firstChild);
+    }
+    
     annotationListElements.set(annotation.id, element);
 
     element.addEventListener('mouseenter', () => {
@@ -557,6 +604,21 @@ export class AnnotationLayerView extends Tab {
     });
     element.addEventListener('click', () => {
       this.state.value = {id: annotation.id, partIndex: 0};
+      if (!annotation.visited) {
+        annotation.reviewed = true;
+      }
+      annotation.visited = true;
+      if (!annotation.reviewed) {
+        annotation.reviewed;
+      }
+      const {reference} = this.state;
+      if (reference == null) {
+        return;
+      }
+      annotationLayer.source.update(reference, {...annotation});
+      annotationLayer.source.commit(reference);
+      this.updated = false;
+      this.updateView();
     });
 
     element.addEventListener('mouseup', (event: MouseEvent) => {
@@ -922,7 +984,8 @@ export class PlacePointTool extends PlaceAnnotationTool {
             vec3.transformMat4(vec3.create(), mouseState.position, annotationLayer.globalToObject),
         type: AnnotationType.POINT,
         anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
-        reviewed: "unreviewed"
+        reviewed: false,
+        visited: false
       };
       const reference = annotationLayer.source.add(annotation, /*commit=*/true);
       this.layer.selectedAnnotation.value = {id: reference.id};
@@ -1160,7 +1223,8 @@ export abstract class TwoStepAnnotationTool extends PlaceAnnotationTool {
             description: '',
             points: lineStrings[i],
             anntype: "unknown", // TODO Propagate the layer type (follow approach from newly-drawn annotations).
-            reviewed: "unreviewed"
+            reviewed: false,
+            visited: false
           };
 
           annotationLayer.source.add(lineString, true);
@@ -1302,7 +1366,8 @@ abstract class PlacePolygonAnnotationTool extends TwoStepAnnotationTool {
         description: '',
         points: [point],
         anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
-        reviewed: "unreviewed",
+        reviewed: false,
+        visited: false,
         selected: [],
         hasSelection: false
       };
@@ -1387,7 +1452,7 @@ abstract class PlaceLineStringAnnotationTool extends TwoStepAnnotationTool {
         description: '',
         points: [point],
         anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
-        reviewed: "unreviewed"
+        reviewed: false
       };
     }
 
@@ -1421,7 +1486,7 @@ abstract class PlaceTwoCornerAnnotationTool extends TwoStepAnnotationTool {
       pointA: point,
       pointB: point,
       anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
-      reviewed: "unreviewed"
+      reviewed: false
     };
   }
 
@@ -1490,7 +1555,7 @@ class PlaceSphereTool extends TwoStepAnnotationTool {
       center: point,
       radii: vec3.fromValues(0, 0, 0),
       anntype: this.layer.annotationType ? this.layer.annotationType : "unknown",
-      reviewed: "unreviewed"
+      reviewed: false
     };
   }
 

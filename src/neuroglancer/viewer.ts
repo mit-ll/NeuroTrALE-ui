@@ -1200,9 +1200,10 @@ export class Viewer extends RefCounted implements ViewerState {
       }
     }
 
+    // When serializing TypedArray objects (e.g. coordinates from geometry buffers), a replacer function is applied to eliminate the keyed dictionary representation.
     fetch(layerSource, {
       method: "PUT",
-      body: JSON.stringify(layerData)
+      body: JSON.stringify(layerData, (_, v) => v instanceof Object.getPrototypeOf(Float32Array) ? Array.from(v) : v)
     });
   }
 

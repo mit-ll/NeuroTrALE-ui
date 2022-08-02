@@ -414,6 +414,7 @@ export class AnnotationSource extends RefCounted implements AnnotationSourceSign
     }
     
     this.annotationMap.delete(reference.id);
+    this.references.delete(reference.id);
 
     this.recalculateAnnotationSizeRange();
 

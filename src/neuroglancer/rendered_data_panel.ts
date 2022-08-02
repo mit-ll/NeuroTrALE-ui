@@ -671,9 +671,6 @@ export abstract class RenderedDataPanel extends RenderedPanel {
   }
 
   undoDeleteAnnotation(stateRecord:any) {
-    let annotation = stateRecord.annotation;
-    annotation.id = annotation.id + "foo";
-
     stateRecord.layer.add(stateRecord.annotation);
   }
 

@@ -12,6 +12,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ * 
+ * @modifcations
+ * MIT modified this file. For more information see the NOTICES.txt file
  */
 
 import {CHUNK_MANAGER_RPC_ID, CHUNK_QUEUE_MANAGER_RPC_ID, CHUNK_SOURCE_INVALIDATE_RPC_ID, ChunkDownloadStatistics, ChunkMemoryStatistics, ChunkPriorityTier, ChunkSourceParametersConstructor, ChunkState, getChunkDownloadStatisticIndex, getChunkStateStatisticIndex, numChunkMemoryStatistics, numChunkStatistics, REQUEST_CHUNK_STATISTICS_RPC_ID} from 'neuroglancer/chunk_manager/base';

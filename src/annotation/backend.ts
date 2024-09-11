@@ -12,6 +12,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ * 
+ * @modifcations
+ * MIT modified this file. For more information see the NOTICES.txt file
  */
 
 import type { AnnotationGeometryChunkSpecification } from "#src/annotation/base.js";
@@ -104,6 +107,7 @@ export class AnnotationGeometryData implements SerializedAnnotations {
   typeToOffset: number[];
   typeToIds: string[][];
   typeToIdMaps: Map<string, number>[];
+  typeToPrimitiveCount: number[];
 
   serialize(msg: any, transfers: any[]) {
     msg.data = this.data;

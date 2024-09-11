@@ -12,6 +12,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ * 
+ * @modifcations
+ * MIT modified this file. For more information see the NOTICES.txt file
  */
 
 /**
@@ -77,6 +80,7 @@ export enum AnnotationType {
   LINE = 1,
   AXIS_ALIGNED_BOUNDING_BOX = 2,
   ELLIPSOID = 3,
+  LINE_STRING = 4,
 }
 
 export const annotationTypes = [
@@ -84,6 +88,7 @@ export const annotationTypes = [
   AnnotationType.LINE,
   AnnotationType.AXIS_ALIGNED_BOUNDING_BOX,
   AnnotationType.ELLIPSOID,
+  AnnotationType.LINE_STRING,
 ];
 
 export interface AnnotationPropertySpecBase {
@@ -669,7 +674,12 @@ export interface Ellipsoid extends AnnotationBase {
   type: AnnotationType.ELLIPSOID;
 }
 
-export type Annotation = Line | Point | AxisAlignedBoundingBox | Ellipsoid;
+export interface LineString extends AnnotationBase {
+  points: Float32Array[];
+  type: AnnotationType.LINE_STRING;
+}
+
+export type Annotation = Line | Point | AxisAlignedBoundingBox | Ellipsoid | LineString;
 
 export interface AnnotationTypeHandler<T extends Annotation = Annotation> {
   icon: string;
@@ -695,6 +705,7 @@ export interface AnnotationTypeHandler<T extends Annotation = Annotation> {
     annotation: T,
     callback: (vec: Float32Array, isVector: boolean) => void,
   ) => void;
+  getByteInstanceCount: (annotations: Annotation[]) => number;
 }
 
 function serializeFloatVector(
@@ -721,6 +732,20 @@ function serializeTwoFloatVectors(
 ) {
   offset = serializeFloatVector(buffer, offset, isLittleEndian, rank, vecA);
   offset = serializeFloatVector(buffer, offset, isLittleEndian, rank, vecB);
+  return offset;
+}
+
+
+function serializeFloatVectorArray(
+  buffer: DataView,
+  offset: number,
+  isLittleEndian: boolean,
+  rank: number,
+  arr: Float32Array[]
+) {
+  for (let i = 0; i < arr.length; ++i) {
+    offset = serializeFloatVector(buffer, offset, isLittleEndian, rank, arr[i]);
+  }
   return offset;
 }
 
@@ -814,6 +839,9 @@ export const annotationTypeHandlers: Record<
       callback(annotation.pointA, false);
       callback(annotation.pointB, false);
     },
+    getByteInstanceCount(annotations: Line[]) {
+      return annotations.length;
+    },
   },
   [AnnotationType.POINT]: {
     icon: "⚬",
@@ -857,6 +885,9 @@ export const annotationTypeHandlers: Record<
     },
     visitGeometry(annotation: Point, callback) {
       callback(annotation.point, false);
+    },
+    getByteInstanceCount(annotations: Point[]) {
+      return annotations.length;
     },
   },
   [AnnotationType.AXIS_ALIGNED_BOUNDING_BOX]: {
@@ -926,6 +957,9 @@ export const annotationTypeHandlers: Record<
       callback(annotation.pointA, false);
       callback(annotation.pointB, false);
     },
+    getByteInstanceCount(annotations: AxisAlignedBoundingBox[]) {
+      return annotations.length;
+    },
   },
   [AnnotationType.ELLIPSOID]: {
     icon: "◎",
@@ -993,6 +1027,50 @@ export const annotationTypeHandlers: Record<
     visitGeometry(annotation: Ellipsoid, callback) {
       callback(annotation.center, false);
       callback(annotation.radii, true);
+    },
+    getByteInstanceCount(annotations: Ellipsoid[]) {
+      return annotations.length;
+    },
+  },
+  [AnnotationType.LINE_STRING]: {
+    icon: '┉',
+    description: 'Line String',
+    toJSON(annotation: LineString) {
+      return {
+        points: Array.from(annotation.points.map(point => Array.from(point)))
+      };
+    },
+    restoreState(annotation: LineString, obj: any, rank: number) {
+      annotation.points = verifyObjectProperty(
+          obj, 'points', x => x.map((xi: any) => parseFixedLengthArray(new Float32Array(rank), xi, verifyFiniteFloat)));
+    },
+    serializedBytes(rank: number) {
+      return 2 * 4 * rank;
+    },
+    serialize(
+        buffer: DataView, offset: number, isLittleEndian: boolean, rank: number, annotation: LineString) {
+        serializeFloatVectorArray(buffer, offset, isLittleEndian, rank, annotation.points);
+    },
+    deserialize:
+    (buffer: DataView, offset: number, isLittleEndian: boolean, rank: number, id: string):
+        Line => {
+          const pointA = new Float32Array(rank);
+          const pointB = new Float32Array(rank);
+          deserializeTwoFloatVectors(buffer, offset, isLittleEndian, rank, pointA, pointB);
+          return {type: AnnotationType.LINE, pointA, pointB, id, properties: []};
+        },
+        // TODO How do we deserialize when we don't know the array length ahead of time? Always store the length in index zero?
+        // (buffer: DataView, offset: number, isLittleEndian: boolean, rank: number, id: string):
+        //   LineString => {
+        //       const points = [new Float32Array(rank)];
+        //       deserializeFloatVectorArray(buffer, offset, isLittleEndian, rank, points);
+        //       return {type: AnnotationType.LINE_STRING, points, id, properties: []};
+        //     },
+    visitGeometry(annotation: LineString, callback) {
+      callback(annotation.points[0], false);
+    },
+    getByteInstanceCount(annotations: LineString[]) {
+      return annotations.reduce((a,c) => a + c.points.length / 2, 0);
     },
   },
 };
@@ -1367,6 +1445,7 @@ export interface SerializedAnnotations {
   typeToIds: string[][];
   typeToOffset: number[];
   typeToIdMaps: Map<string, number>[];
+  typeToPrimitiveCount: number[];
 }
 
 function serializeAnnotations(
@@ -1374,14 +1453,18 @@ function serializeAnnotations(
   propertySerializers: AnnotationPropertySerializer[],
 ): SerializedAnnotations {
   let totalBytes = 0;
+  const typeToPrimitiveCount: number[] = [];
   const typeToOffset: number[] = [];
   for (const annotationType of annotationTypes) {
     const propertySerializer = propertySerializers[annotationType];
     const serializedPropertiesBytes = propertySerializer.serializedBytes;
     typeToOffset[annotationType] = totalBytes;
     const annotations: Annotation[] = allAnnotations[annotationType];
-    const count = annotations.length;
-    totalBytes += serializedPropertiesBytes * count;
+    const handler = annotationTypeHandlers[annotationType];
+    const byteInstanceCount = handler.getByteInstanceCount(annotations);
+
+    typeToPrimitiveCount[annotationType] = byteInstanceCount;
+    totalBytes += serializedPropertiesBytes * byteInstanceCount;
   }
   const typeToIds: string[][] = [];
   const typeToIdMaps: Map<string, number>[] = [];
@@ -1400,15 +1483,15 @@ function serializeAnnotations(
     const handler = annotationTypeHandlers[annotationType];
     const serialize = handler.serialize;
     const offset = typeToOffset[annotationType];
-    const geometryDataStride = propertySerializer.propertyGroupBytes[0];
+    let geometryOffset = 0;
     for (let i = 0, count = annotations.length; i < count; ++i) {
       const annotation = annotations[i];
       serialize(
         dataView,
-        offset + i * geometryDataStride,
+        offset + geometryOffset,
         isLittleEndian,
         rank,
-        annotation,
+        annotation
       );
       serializeProperties(
         dataView,
@@ -1418,13 +1501,16 @@ function serializeAnnotations(
         isLittleEndian,
         annotation.properties,
       );
+
+      geometryOffset += handler.getByteInstanceCount([annotation]) * handler.serializedBytes(rank);
     }
   }
-  return { data: new Uint8Array(data), typeToIds, typeToOffset, typeToIdMaps };
+  return {data: new Uint8Array(data), typeToIds, typeToOffset, typeToIdMaps, typeToPrimitiveCount};
 }
 
 export class AnnotationSerializer {
-  annotations: [Point[], Line[], AxisAlignedBoundingBox[], Ellipsoid[]] = [
+  annotations: [Point[], Line[], AxisAlignedBoundingBox[], Ellipsoid[], LineString[]] = [
+    [],
     [],
     [],
     [],

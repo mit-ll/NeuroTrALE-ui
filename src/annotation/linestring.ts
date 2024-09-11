@@ -1,6 +1,11 @@
-/**
- * @file Support for rendering line string annotations.
- */
+/*
+* Copyright (C) 2024, MASSACHUSETTS INSTITUTE OF TECHNOLOGY
+* Subject to FAR 52.227-11 – Patent Rights – Ownership by the Contractor (May 2014) 
+* SPDX-License-Identifier: BSD-2-Clause
+* The software/firmware is provided to you on an As-Is basis
+* 
+* @file Support for rendering line string annotations.
+*/
 
 import type { LineString } from "#src/annotation/index.js";
 import { AnnotationType } from "#src/annotation/index.js";

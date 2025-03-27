@@ -69,7 +69,7 @@ Like Neuroglancer, NeuroTrALE depends on data being accessible via HTTP in a sui
 # Keyboard and mouse bindings
 
 For the complete set of bindings, see
-[src/neuroglancer/ui/default_input_event_bindings.ts](src/neuroglancer/default_input_event_bindings.ts),
+[src/ui/default_input_event_bindings.ts](src/ui/default_input_event_bindings.ts),
 or within NeuroTrALE, press `h` or click on the button labeled `?` in the upper right corner.
 
 - Click on a layer name to toggle its visibility.
